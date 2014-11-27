@@ -1,10 +1,11 @@
-﻿using System;
+﻿using LibLR1.IO;
+using LibLR1.Utils;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
-using LibLR1.Utils;
 
 namespace LR1BinaryEditor
 {
@@ -20,71 +21,75 @@ namespace LR1BinaryEditor
 
 		private static IFormatProvider ms_cultureInfo = new CultureInfo("en-US");
 
-		public static void RecursiveAppend(BinaryReader p_br, byte p_token, ref StringBuilder p_buffer, ref int p_indent, ref int p_sqBracketStack, ref int p_sqBracketCount, string p_format)
+		public static void RecursiveAppend(LRBinaryReader p_br, Token p_token, ref StringBuilder p_buffer, ref int p_indent, ref int p_sqBracketStack, ref int p_sqBracketCount, string p_format)
 		{
 			switch (p_token)
 			{
-				case BinaryFileHelper.TYPE_16BIT_FRACT:
+				case Token.Fract16:
 				{
-					Open_Print(ref p_buffer, k_castFract16 + SafeFloatToString(p_br.ReadInt16() / 256f), p_indent, p_sqBracketStack, p_sqBracketCount++);
+					Open_Print(ref p_buffer, k_castFract16 + SafeFloatToString(p_br.ReadUShort() / 256f), p_indent, p_sqBracketStack, p_sqBracketCount++);
 					break;
 				}
-				case BinaryFileHelper.TYPE_8BIT_FRACT:
+				case Token.Fract8:
 				{
 					Open_Print(ref p_buffer, k_castFract8 + SafeFloatToString(p_br.ReadByte() / 16f), p_indent, p_sqBracketStack, p_sqBracketCount++);
 					break;
 				}
-				case BinaryFileHelper.TYPE_BYTE:
+				case Token.Byte:
 				{
 					Open_Print(ref p_buffer, k_castByte + p_br.ReadByte().ToString(), p_indent, p_sqBracketStack, p_sqBracketCount++);
 					break;
 				}
-				case BinaryFileHelper.TYPE_FLOAT:
+				case Token.Float:
 				{
-					Open_Print(ref p_buffer, k_castFloat + SafeFloatToString(p_br.ReadSingle()), p_indent, p_sqBracketStack, p_sqBracketCount++);
+					Open_Print(ref p_buffer, k_castFloat + SafeFloatToString(p_br.ReadFloat()), p_indent, p_sqBracketStack, p_sqBracketCount++);
 					break;
 				}
-				case BinaryFileHelper.TYPE_INT32:
+				case Token.Int32:
 				{
-					Open_Print(ref p_buffer, p_br.ReadInt32().ToString(), p_indent, p_sqBracketStack, p_sqBracketCount++);
+					Open_Print(ref p_buffer, p_br.ReadInt().ToString(), p_indent, p_sqBracketStack, p_sqBracketCount++);
 					break;
 				}
-				case BinaryFileHelper.TYPE_LEFT_BRACKET:
+				case Token.LeftBracket:
 				{
 					p_sqBracketCount = -1;
 					Open_Print(ref p_buffer, "[", p_indent, ++p_sqBracketStack, p_sqBracketCount++);
 					break;
 				}
-				case BinaryFileHelper.TYPE_LEFT_CURLY:
+				case Token.LeftCurly:
 				{
 					Open_Print(ref p_buffer, "{", p_indent++, p_sqBracketStack, p_sqBracketCount++);
 					break;
 				}
-				case BinaryFileHelper.TYPE_RIGHT_BRACKET:
+				case Token.RightBracket:
 				{
 					p_sqBracketCount = -1;
 					Open_Print(ref p_buffer, "]", p_indent, --p_sqBracketStack, p_sqBracketCount++);
 					break;
 				}
-				case BinaryFileHelper.TYPE_RIGHT_CURLY:
+				case Token.RightCurly:
 				{
 					Open_Print(ref p_buffer, "}", --p_indent, p_sqBracketStack, p_sqBracketCount++);
 					break;
 				}
-				case BinaryFileHelper.TYPE_STRING:
+				case Token.String:
 				{
-					Open_Print(ref p_buffer, "\"" + AddSlashes(BinaryFileHelper.ReadString(p_br.BaseStream)) + "\"", p_indent, p_sqBracketStack, p_sqBracketCount++);
+					Open_Print(ref p_buffer, "\"" + AddSlashes(p_br.ReadString()) + "\"", p_indent, p_sqBracketStack, p_sqBracketCount++);
 					break;
 				}
-				case BinaryFileHelper.TYPE_USHORT:
+				case Token.UShort:
 				{
-					Open_Print(ref p_buffer, k_castUshort + p_br.ReadUInt16().ToString(), p_indent, p_sqBracketStack, p_sqBracketCount++);
+					Open_Print(ref p_buffer, k_castUshort + p_br.ReadUShort().ToString(), p_indent, p_sqBracketStack, p_sqBracketCount++);
 					break;
 				}
 				default:
 				{
 					string keyword_info = Util.GetKeywordInfo(p_format, p_token, (p_indent == 0));
-					Open_Print(ref p_buffer, k_prefixKeyword + p_token.ToString("X2") + (keyword_info.Length > 0 ? "    // " + keyword_info : ""), p_indent, p_sqBracketStack, p_sqBracketCount++);
+					StringBuilder sb = new StringBuilder();
+					sb.Append(k_prefixKeyword);
+					sb.Append(((byte)(p_token)).ToString("X2"));
+					sb.Append(keyword_info.Length > 0 ? "    // " + keyword_info : "");
+					Open_Print(ref p_buffer, sb.ToString(), p_indent, p_sqBracketStack, p_sqBracketCount++);
 					break;
 				}
 			}
@@ -107,7 +112,7 @@ namespace LR1BinaryEditor
 			p_buffer.Append(p_sqBracketStack > 0 ? "" : "\r\n");
 		}
 
-		public static string GetKeywordInfo(string p_format, byte p_token, bool p_isBlock)
+		public static string GetKeywordInfo(string p_format, Token p_token, bool p_isBlock)
 		{
 			p_format = p_format.ToUpper();
 			if (p_isBlock)
@@ -157,21 +162,24 @@ namespace LR1BinaryEditor
 		{
 			MemoryStream buffer = new MemoryStream();
 			string[] lines = p_fileData.Split('\n');
-			for (int i = 0; i < lines.Length; i++)
+			using (LRBinaryWriter writer = new LRBinaryWriter(buffer, false))
 			{
-				string line = lines[i].Trim();
-
-				while (line.Length > 0)
+				for (int i = 0; i < lines.Length; i++)
 				{
-					ParseToken(ref line, ref buffer);
-					line = line.Trim();
+					string line = lines[i].Trim();
+
+					while (line.Length > 0)
+					{
+						ParseToken(ref line, writer);
+						line = line.Trim();
+					}
 				}
 			}
 			buffer.Position = 0;
 			return buffer;
 		}
 
-		private static void ParseToken(ref string p_line, ref MemoryStream p_buffer)
+		private static void ParseToken(ref string p_line, LRBinaryWriter p_writer)
 		{
 			if (p_line.StartsWith("//"))
 			{
@@ -185,73 +193,73 @@ namespace LR1BinaryEditor
 			}
 			else if (p_line[0] == '{')
 			{
-				BinaryFileHelper.WriteByte(p_buffer, BinaryFileHelper.TYPE_LEFT_CURLY);
+				p_writer.WriteToken(Token.LeftCurly);
 				p_line = p_line.Substring(1);
 			}
 			else if (p_line[0] == '}')
 			{
-				BinaryFileHelper.WriteByte(p_buffer, BinaryFileHelper.TYPE_RIGHT_CURLY);
+				p_writer.WriteToken(Token.RightCurly);
 				p_line = p_line.Substring(1);
 			}
 			else if (p_line[0] == '[')
 			{
-				BinaryFileHelper.WriteByte(p_buffer, BinaryFileHelper.TYPE_LEFT_BRACKET);
+				p_writer.WriteToken(Token.LeftBracket);
 				p_line = p_line.Substring(1);
 			}
 			else if (p_line[0] == ']')
 			{
-				BinaryFileHelper.WriteByte(p_buffer, BinaryFileHelper.TYPE_RIGHT_BRACKET);
+				p_writer.WriteToken(Token.RightBracket);
 				p_line = p_line.Substring(1);
 			}
 			else if (p_line[0] == '"')
 			{
 				// seriously I have no idea what I was on when I wrote this
 				Match match = Regex.Match(p_line, "\"[^\"\\\\\\r\\n]*(?:\\\\.[^\"\\\\\\r\\n]*)*\"");
-				BinaryFileHelper.WriteStringWithHeader(p_buffer, StripSlashes(match.Value.Substring(1, match.Value.Length - 2)));
+				p_writer.WriteStringWithHeader(StripSlashes(match.Value.Substring(1, match.Value.Length - 2)));
 				p_line = p_line.Substring(match.Value.Length);
 			}
 			else if (p_line.StartsWith(k_castFract16))
 			{
 				p_line = p_line.Substring(k_castFract16.Length);
 				float value = ParseFloatToken(ref p_line);
-				BinaryFileHelper.WriteFract16BitWithHeader(p_buffer, new Fract16Bit(value));
+				p_writer.WriteFract16BitWithHeader(new Fract16Bit(value));
 			}
 			else if (p_line.StartsWith(k_castFract8))
 			{
 				p_line = p_line.Substring(k_castFract8.Length);
 				float value = ParseFloatToken(ref p_line);
-				BinaryFileHelper.WriteFract8BitWithHeader(p_buffer, new Fract8Bit(value));
+				p_writer.WriteFract8BitWithHeader(new Fract8Bit(value));
 			}
 			else if (p_line.StartsWith(k_castFloat))
 			{
 				p_line = p_line.Substring(k_castFloat.Length);
 				float value = ParseFloatToken(ref p_line);
-				BinaryFileHelper.WriteFloatWithHeader(p_buffer, value);
+				p_writer.WriteFloatWithHeader(value);
 			}
 			else if (p_line.StartsWith(k_castUshort))
 			{
 				p_line = p_line.Substring(k_castUshort.Length);
 				ushort value = ParseUshortToken(ref p_line);
-				BinaryFileHelper.WriteUShortWithHeader(p_buffer, value);
+				p_writer.WriteUShortWithHeader(value);
 			}
 			else if (p_line.StartsWith(k_castByte))
 			{
 				p_line = p_line.Substring(k_castByte.Length);
 				byte value = ParseByteToken(ref p_line);
-				BinaryFileHelper.WriteByteWithHeader(p_buffer, value);
+				p_writer.WriteByteWithHeader(value);
 			}
 			else if (p_line.StartsWith(k_castInt))
 			{
 				p_line = p_line.Substring(k_castInt.Length);
 				int value = ParseIntToken(ref p_line);
-				BinaryFileHelper.WriteIntWithHeader(p_buffer, value);
+				p_writer.WriteIntWithHeader(value);
 			}
 			else if (p_line.StartsWith(k_prefixKeyword))
 			{
 				p_line = p_line.Substring(k_prefixKeyword.Length);
 				byte value = Convert.ToByte(p_line.Substring(0, 2), 16);
 				p_line = p_line.Substring(2);
-				BinaryFileHelper.WriteByte(p_buffer, value);  // WITHOUT HEADER, YOU RETARD.
+				p_writer.WriteByte(value);  // WITHOUT HEADER, YOU RETARD.
 			}
 			else
 			{
@@ -259,7 +267,7 @@ namespace LR1BinaryEditor
 				if (numeric.Length > 0)
 				{
 					p_line = p_line.Substring(numeric.Length);
-					BinaryFileHelper.WriteIntWithHeader(p_buffer, int.Parse(numeric));
+					p_writer.WriteIntWithHeader(int.Parse(numeric));
 				}
 				else
 				{

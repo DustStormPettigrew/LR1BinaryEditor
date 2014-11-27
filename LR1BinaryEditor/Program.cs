@@ -12,16 +12,16 @@ namespace LR1BinaryEditor
 		[STAThread]
 		static void Main(string[] p_args)
 		{
-			try
-			{
+			//try
+			//{
 				Application.EnableVisualStyles();
 				Application.SetCompatibleTextRenderingDefault(false);
 				Application.Run(new MainFormScintilla(p_args));
-			}
-			catch (Exception ex)
-			{
-				LogError(ex);
-			}
+			//}
+			//catch (Exception ex)
+			//{
+			//	LogError(ex);
+			//}
 		}
 
 		static void LogError(Exception p_ex)

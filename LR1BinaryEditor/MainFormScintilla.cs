@@ -1,16 +1,13 @@
-﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
+﻿using LibLR1.IO;
+using LibLR1.Utils;
+using ScintillaNET;
+using System;
 using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
 using System.Windows.Forms;
-using LibLR1.Utils;
-using ScintillaNET;
-using ScintillaNET.Configuration;
 
 namespace LR1BinaryEditor
 {
@@ -134,7 +131,7 @@ namespace LR1BinaryEditor
 		private void Open(string p_filepath)
 		{
 			FileInfo fi = new FileInfo(p_filepath);
-			using (BinaryReader br = new BinaryReader(BinaryFileHelper.Decompress(p_filepath)))
+			using (LRBinaryReader br = BinaryFileHelper.Decompress(p_filepath))
 			{
 				int indent = 0;
 				int sqBracketStack = 0;
@@ -143,7 +140,7 @@ namespace LR1BinaryEditor
 				string format = fi.Extension.Replace(".", "");
 				while (br.BaseStream.Position < br.BaseStream.Length)
 				{
-					byte token = br.ReadByte();
+					Token token = br.ReadToken();
 					Util.RecursiveAppend(br, token, ref buffer, ref indent, ref sqBracketStack, ref sqBracketCount, format);
 				}
 				g_txtBox.Text = buffer.ToString().Trim();  // removes any trailing newlines :)

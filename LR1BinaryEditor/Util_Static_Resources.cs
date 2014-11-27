@@ -1,4 +1,5 @@
-﻿using System;
+﻿using LibLR1.Utils;
+using System;
 using System.Collections.Generic;
 using System.IO;
 
@@ -6,8 +7,8 @@ namespace LR1BinaryEditor
 {
 	static partial class Util
 	{
-		private static Dictionary<string, Dictionary<byte, string>> ms_keywordInfoBlocks;
-		private static Dictionary<string, Dictionary<byte, string>> ms_keywordInfoProperties;
+		private static Dictionary<string, Dictionary<Token, string>> ms_keywordInfoBlocks;
+		private static Dictionary<string, Dictionary<Token, string>> ms_keywordInfoProperties;
 
 		public static void LoadKeywordInfo(string p_dirpath)
 		{
@@ -20,7 +21,7 @@ namespace LR1BinaryEditor
 			}
 			else
 			{
-				ms_keywordInfoBlocks = new Dictionary<string, Dictionary<byte, string>>();
+				ms_keywordInfoBlocks = new Dictionary<string, Dictionary<Token, string>>();
 			}
 
 			if (File.Exists(path_blocks_cfg))
@@ -29,13 +30,13 @@ namespace LR1BinaryEditor
 			}
 			else
 			{
-				ms_keywordInfoProperties = new Dictionary<string, Dictionary<byte, string>>();
+				ms_keywordInfoProperties = new Dictionary<string, Dictionary<Token, string>>();
 			}
 		}
 
-		private static Dictionary<string, Dictionary<byte, string>> LoadCfg(string p_filepath)
+		private static Dictionary<string, Dictionary<Token, string>> LoadCfg(string p_filepath)
 		{
-			Dictionary<string, Dictionary<byte, string>> output = new Dictionary<string, Dictionary<byte, string>>();
+			var output = new Dictionary<string, Dictionary<Token, string>>();
 
 			string[] lines = File.ReadAllLines(p_filepath);
 			foreach (string line in lines)
@@ -44,11 +45,11 @@ namespace LR1BinaryEditor
 				if (l.Length == 0) continue;
 				string src = l.Substring(0, l.IndexOf(' '));
 				string type = src.Substring(0, src.IndexOf('.'));
-				byte keyword = Convert.ToByte(src.Substring(type.Length + 1, 2), 16);
+				Token keyword = (Token)Convert.ToByte(src.Substring(type.Length + 1, 2), 16);
 
 				if (!output.ContainsKey(type))
 				{
-					output[type] = new Dictionary<byte, string>();
+					output[type] = new Dictionary<Token, string>();
 				}
 				output[type][keyword] = l.Substring(l.IndexOf(' ') + 1);
 			}

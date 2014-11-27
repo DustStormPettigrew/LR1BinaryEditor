@@ -39,6 +39,9 @@
     <ApplicationIcon>Icon.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
+    <Reference Include="LibLR1">
+      <HintPath>..\..\liblr1\LibLR1\bin\Release\LibLR1.dll</HintPath>
+    </Reference>
     <Reference Include="ScintillaNET">
       <HintPath>.\ScintillaNET.dll</HintPath>
     </Reference>
@@ -54,12 +57,6 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="LibLR1\Utils\BinaryFileHelper.cs" />
-    <Compile Include="LibLR1\Utils\Fract16Bit.cs" />
-    <Compile Include="LibLR1\Utils\Fract8Bit.cs" />
-    <Compile Include="LibLR1\Utils\LRQuaternion.cs" />
-    <Compile Include="LibLR1\Utils\LRVector2.cs" />
-    <Compile Include="LibLR1\Utils\LRVector3.cs" />
     <Compile Include="MainFormScintilla.cs">
       <SubType>Form</SubType>
     </Compile>
