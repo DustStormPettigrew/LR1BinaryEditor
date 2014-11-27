@@ -142,14 +142,14 @@ namespace LR1BinaryEditor
 				int indent = 0;
 				int sqBracketStack = 0;
 				int sqBracketCount = -1;
-				string buffer = "";
+				StringBuilder buffer = new StringBuilder();
 				string format = fi.Extension.Replace(".", "");
 				while (br.BaseStream.Position < br.BaseStream.Length)
 				{
 					byte token = br.ReadByte();
 					Util.RecursiveAppend(br, token, ref buffer, ref indent, ref sqBracketStack, ref sqBracketCount, format);
 				}
-				g_txtBox.Text = buffer.Trim();  // removes any trailing newlines :)
+				g_txtBox.Text = buffer.ToString().Trim();  // removes any trailing newlines :)
 				m_fileName = fi.Name;
 			}
 			g_txtBox.UndoRedo.EmptyUndoBuffer();

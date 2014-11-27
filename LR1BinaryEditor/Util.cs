@@ -20,7 +20,7 @@ namespace LR1BinaryEditor
 
 		private static IFormatProvider s_CultureInfo = new CultureInfo("en-US");
 
-		public static void RecursiveAppend(BinaryReader p_br, byte p_token, ref string p_buffer, ref int p_indent, ref int p_sqBracketStack, ref int p_sqBracketCount, string p_format)
+		public static void RecursiveAppend(BinaryReader p_br, byte p_token, ref StringBuilder p_buffer, ref int p_indent, ref int p_sqBracketStack, ref int p_sqBracketCount, string p_format)
 		{
 			switch (p_token)
 			{
@@ -90,7 +90,7 @@ namespace LR1BinaryEditor
 			}
 		}
 
-		private static void Open_Print(ref string p_buffer, string p_message, int p_indent = 0, int p_sqBracketStack = 0, int p_sqBracketCount = 0)
+		private static void Open_Print(ref StringBuilder p_buffer, string p_message, int p_indent = 0, int p_sqBracketStack = 0, int p_sqBracketCount = 0)
 		{
 			int new_indent = p_indent;
 			if (p_sqBracketStack > 0 && p_message[0] != '[')
@@ -101,7 +101,10 @@ namespace LR1BinaryEditor
 			{
 				new_indent = 0;
 			}
-			p_buffer += "".PadLeft(new_indent, '\t') + (p_sqBracketStack > 0 ? (p_sqBracketCount > 0 ? ", " : "") : "") + p_message + (p_sqBracketStack > 0 ? "" : "\r\n");
+			p_buffer.Append("".PadLeft(new_indent, '\t'));
+			p_buffer.Append(p_sqBracketStack > 0 ? (p_sqBracketCount > 0 ? ", " : "") : "");
+			p_buffer.Append(p_message);
+			p_buffer.Append(p_sqBracketStack > 0 ? "" : "\r\n");
 		}
 
 		public static string GetKeywordInfo(string p_format, byte p_token, bool p_isBlock)
