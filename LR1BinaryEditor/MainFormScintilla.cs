@@ -29,8 +29,8 @@ namespace LR1BinaryEditor
 
 			Assembly assembly = Assembly.GetExecutingAssembly();
 			Version ver = AssemblyName.GetAssemblyName(assembly.Location).Version;
-			k_applicationName += " [v" + ver.Major + "." + ver.Minor + "]";
-			g_LblBuild.Text = g_LblBuild.Text.Replace("X.Y", ver.Build + "." + ver.Revision);
+			k_applicationName += string.Format(" [v{0}.{1}]", ver.Major, ver.Minor);
+			g_LblBuild.Text = g_LblBuild.Text.Replace("X.Y", string.Format("{0}.{1}", ver.Build, ver.Revision));
 			this.Text = k_applicationName;
 
 			string executingDir = new FileInfo(assembly.Location).DirectoryName;
@@ -109,12 +109,9 @@ namespace LR1BinaryEditor
 
 		private void CreateNewFile()
 		{
-			if (m_unsavedChanges)
+			if (m_unsavedChanges && !AreYouSure("create a new file"))
 			{
-				if (!AreYouSure("create a new file"))
-				{
-					return;
-				}
+				return;
 			}
 			g_txtBox.Text = "";
 			m_fileName = "Untitled";
@@ -181,9 +178,14 @@ namespace LR1BinaryEditor
 			g_txtBox.Enabled = true;
 		}
 
-		private bool AreYouSure(string action)
+		private bool AreYouSure(string p_action)
 		{
-			return MessageBox.Show("There are unsaved changes, are you sure you want to " + action + "?", "Are you sure?", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes;
+			return MessageBox.Show(
+				string.Format("There are unsaved changes, are you sure you want to {0}?", p_action),
+				"Are you sure?",
+				MessageBoxButtons.YesNo,
+				MessageBoxIcon.Warning
+			) == DialogResult.Yes;
 		}
 
 		private void BtnNew_Click(object sender, EventArgs e)
@@ -203,18 +205,15 @@ namespace LR1BinaryEditor
 
 		private void Form1_FormClosing(object sender, FormClosingEventArgs e)
 		{
-			if (m_unsavedChanges)
+			if (m_unsavedChanges && !AreYouSure("quit"))
 			{
-				if (!AreYouSure("quit"))
-				{
-					e.Cancel = true;
-				}
+				e.Cancel = true;
 			}
 		}
 
 		private void UpdateFormTitle()
 		{
-			this.Text = m_fileName + " | " + k_applicationName;
+			this.Text = string.Format("{0} | {1}", m_fileName, k_applicationName);
 		}
 	}
 }
