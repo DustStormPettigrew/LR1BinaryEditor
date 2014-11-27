@@ -1,0 +1,21 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<ScintillaNET>
+  <Language Name="default">
+    <Styles>
+      <Style Name="Default" FontName="Consolas"/>
+    </Styles>
+  </Language>
+
+  <Language Name="cpp">
+    <Indentation TabWidth="4" UseTabs="true"/>
+    <Lexer StreamCommentPrefix="/*" StreamCommentSuffix="*/">
+      <Keywords List="0">float f16 f8 byte ushort</Keywords>
+    </Lexer>
+    <Styles>
+      <Style Name="COMMENT" ForeColor="#999999" />
+      <Style Name="COMMENTLINE" ForeColor="#999999" />
+      <Style Name="COMMENTDOC" ForeColor="#999999" />
+      <Style Name="STRING" ForeColor="Brown" />
+    </Styles>
+  </Language>
+</ScintillaNET>
