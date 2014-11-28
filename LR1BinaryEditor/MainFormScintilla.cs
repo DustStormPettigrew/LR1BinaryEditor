@@ -27,7 +27,7 @@ namespace LR1BinaryEditor
 			Assembly assembly = Assembly.GetExecutingAssembly();
 			Version ver = AssemblyName.GetAssemblyName(assembly.Location).Version;
 			k_applicationName += string.Format(" [v{0}.{1}]", ver.Major, ver.Minor);
-			g_LblBuild.Text = g_LblBuild.Text.Replace("X.Y", string.Format("{0}.{1}", ver.Build, ver.Revision));
+			g_LblBuild.Text = string.Format("© Will Kirkby {0}   Version {1}", DateTime.Now.Year, ver);
 			this.Text = k_applicationName;
 
 			string executingDir = new FileInfo(assembly.Location).DirectoryName;
@@ -47,6 +47,7 @@ namespace LR1BinaryEditor
 			g_txtBox.DragEnter += g_TxtBox_DragEnter;
 			g_txtBox.DragDrop += g_TxtBox_DragDrop;
 			g_txtBox.Whitespace.Mode = WhitespaceMode.Invisible;
+			g_txtBox.TextChanged += g_txtBox_TextChanged;
 
 			g_txtBox.Margins[0].Width = 32;
 			g_txtBox.Margins[0].IsClickable = false;
@@ -85,6 +86,17 @@ namespace LR1BinaryEditor
 			{
 				CreateNewFile();
 			}
+		}
+
+		void g_txtBox_TextChanged(object sender, EventArgs e)
+		{
+			// update line number margin width
+			int digits = 4;
+			if (g_txtBox.Lines.Count > 9999)
+			{
+				digits = (int)Math.Ceiling(Math.Log10(g_txtBox.Lines.Count + 1));
+			}
+			g_txtBox.Margins[0].Width = 4 + (7 * digits);
 		}
 
 		void g_TxtBox_DragEnter(object sender, DragEventArgs e)
