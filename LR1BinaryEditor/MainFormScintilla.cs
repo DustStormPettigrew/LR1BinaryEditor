@@ -26,8 +26,7 @@ namespace LR1BinaryEditor
 
 			Assembly assembly = Assembly.GetExecutingAssembly();
 			Version ver = assembly.GetName().Version;
-			k_applicationName += string.Format(" [v{0}.{1}]", ver.Major, ver.Minor);
-			g_LblBuild.Text = string.Format("© Will Kirkby {0}   Version {1}", DateTime.Now.Year, ver);
+			g_LblBuild.Text = string.Format("Version {0}", ver);
 			this.Text = k_applicationName;
 
 			string executingDir = AppContext.BaseDirectory;

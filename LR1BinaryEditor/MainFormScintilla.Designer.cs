@@ -100,8 +100,8 @@
 			// g_LblBuild
 			// 
 			this.g_LblBuild.Name = "g_LblBuild";
-			this.g_LblBuild.Size = new System.Drawing.Size(160, 17);
-			this.g_LblBuild.Text = "© Will Kirkby 2013   Build X.Y";
+			this.g_LblBuild.Size = new System.Drawing.Size(68, 17);
+			this.g_LblBuild.Text = "Version X.Y";
 			// 
 			// g_MenuStrip
 			// 
