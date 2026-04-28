@@ -25,12 +25,12 @@ namespace LR1BinaryEditor
 			InitializeComponent();
 
 			Assembly assembly = Assembly.GetExecutingAssembly();
-			Version ver = AssemblyName.GetAssemblyName(assembly.Location).Version;
+			Version ver = assembly.GetName().Version;
 			k_applicationName += string.Format(" [v{0}.{1}]", ver.Major, ver.Minor);
 			g_LblBuild.Text = string.Format("© Will Kirkby {0}   Version {1}", DateTime.Now.Year, ver);
 			this.Text = k_applicationName;
 
-			string executingDir = new FileInfo(assembly.Location).DirectoryName;
+			string executingDir = AppContext.BaseDirectory;
 
 			Util.LoadKeywordInfo(executingDir);
 
@@ -90,6 +90,8 @@ namespace LR1BinaryEditor
 
 		void g_txtBox_TextChanged(object sender, EventArgs e)
 		{
+			m_unsavedChanges = true;
+
 			// update line number margin width
 			int digits = 4;
 			if (g_txtBox.Lines.Count > 9999)
@@ -97,6 +99,7 @@ namespace LR1BinaryEditor
 				digits = (int)Math.Ceiling(Math.Log10(g_txtBox.Lines.Count + 1));
 			}
 			g_txtBox.Margins[0].Width = 4 + (7 * digits);
+			UpdateFormTitle();
 		}
 
 		void g_TxtBox_DragEnter(object sender, DragEventArgs e)
@@ -124,6 +127,7 @@ namespace LR1BinaryEditor
 			}
 			g_txtBox.Text = "";
 			m_fileName = "Untitled";
+			m_unsavedChanges = false;
 			UpdateFormTitle();
 		}
 
@@ -159,6 +163,7 @@ namespace LR1BinaryEditor
 				m_fileName = fi.Name;
 			}
 			g_txtBox.UndoRedo.EmptyUndoBuffer();
+			m_unsavedChanges = false;
 			g_txtBox.Refresh();
 			UpdateFormTitle();
 		}
@@ -185,6 +190,9 @@ namespace LR1BinaryEditor
 				fsOut.Write(ms.ToArray(), 0, (int)ms.Length);
 			}
 			g_txtBox.Enabled = true;
+			m_fileName = Path.GetFileName(p_filepath);
+			m_unsavedChanges = false;
+			UpdateFormTitle();
 		}
 
 		private bool AreYouSure(string p_action)
@@ -222,7 +230,8 @@ namespace LR1BinaryEditor
 
 		private void UpdateFormTitle()
 		{
-			this.Text = string.Format("{0} | {1}", m_fileName, k_applicationName);
+			string dirtyMarker = m_unsavedChanges ? "*" : "";
+			this.Text = string.Format("{0}{1} | {2}", m_fileName, dirtyMarker, k_applicationName);
 		}
 	}
 }

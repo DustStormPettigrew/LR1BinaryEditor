@@ -1,6 +1,9 @@
 ﻿using System;
 using System.IO;
+using System.Runtime.Versioning;
 using System.Windows.Forms;
+
+[assembly: SupportedOSPlatform("windows")]
 
 namespace LR1BinaryEditor
 {
