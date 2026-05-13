@@ -19,6 +19,7 @@ namespace LR1BinaryEditor
 
 		private bool   m_unsavedChanges;
 		private string m_fileName;
+		private string m_currentFormat;
 
 		public MainFormScintilla(string[] p_args)
 		{
@@ -126,6 +127,7 @@ namespace LR1BinaryEditor
 			}
 			g_txtBox.Text = "";
 			m_fileName = "Untitled";
+			m_currentFormat = null;
 			m_unsavedChanges = false;
 			UpdateFormTitle();
 		}
@@ -148,23 +150,8 @@ namespace LR1BinaryEditor
 			FileInfo fi = new FileInfo(p_filepath);
 			using (LRBinaryReader br = BinaryFileHelper.Decompress(p_filepath))
 			{
-				int indent = 0;
-				int sqBracketStack = 0;
-				int sqBracketCount = -1;
-				StringBuilder buffer = new StringBuilder();
-				string format = fi.Extension.Replace(".", "");
-				while (br.BaseStream.Position < br.BaseStream.Length)
-				{
-					Token token = br.ReadToken();
-					Util.RecursiveAppend(br, token, ref buffer, ref indent, ref sqBracketStack, ref sqBracketCount, format);
-				}
-				g_txtBox.Text = buffer.ToString().Trim();  // removes any trailing newlines :)
-				m_fileName = fi.Name;
+				LoadEditorFromReader(br, fi.Extension.Replace(".", ""), fi.Name, false);
 			}
-			g_txtBox.UndoRedo.EmptyUndoBuffer();
-			m_unsavedChanges = false;
-			g_txtBox.Refresh();
-			UpdateFormTitle();
 		}
 
 		public void DisplaySaveDialog()
@@ -190,8 +177,135 @@ namespace LR1BinaryEditor
 			}
 			g_txtBox.Enabled = true;
 			m_fileName = Path.GetFileName(p_filepath);
+			m_currentFormat = GetFormatFromFileName(m_fileName);
 			m_unsavedChanges = false;
 			UpdateFormTitle();
+		}
+
+		private void LoadEditorFromReader(LRBinaryReader reader, string format, string fileName, bool markDirty)
+		{
+			int indent = 0;
+			int sqBracketStack = 0;
+			int sqBracketCount = -1;
+			StringBuilder buffer = new StringBuilder();
+			string normalizedFormat = (format ?? "").Trim().TrimStart('.').ToUpperInvariant();
+			while (reader.BaseStream.Position < reader.BaseStream.Length)
+			{
+				Token token = reader.ReadToken();
+				Util.RecursiveAppend(reader, token, ref buffer, ref indent, ref sqBracketStack, ref sqBracketCount, normalizedFormat);
+			}
+
+			g_txtBox.Text = buffer.ToString().Trim();
+			g_txtBox.UndoRedo.EmptyUndoBuffer();
+			m_fileName = fileName;
+			m_currentFormat = normalizedFormat;
+			m_unsavedChanges = markDirty;
+			g_txtBox.Refresh();
+			UpdateFormTitle();
+		}
+
+		private MemoryStream GetCompiledEditorBuffer()
+		{
+			return Util.Compile(g_txtBox.Text);
+		}
+
+		private string GetFormatFromFileName(string fileName)
+		{
+			if (string.IsNullOrWhiteSpace(fileName))
+			{
+				return null;
+			}
+
+			string extension = Path.GetExtension(fileName);
+			if (string.IsNullOrWhiteSpace(extension))
+			{
+				return null;
+			}
+
+			return extension.TrimStart('.').ToUpperInvariant();
+		}
+
+		private void DisplayExportJsonDialog()
+		{
+			string format = m_currentFormat ?? GetFormatFromFileName(m_fileName);
+			if (!LibLR1JsonBridge.CanExport(format, out string error))
+			{
+				MessageBox.Show(error, "Export as JSON", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+				return;
+			}
+
+			using (SaveFileDialog sfd = new SaveFileDialog()
+			{
+				FileName = Path.ChangeExtension(m_fileName ?? "Untitled", ".json"),
+				Filter = "JSON Files|*.json"
+			})
+			{
+				if (sfd.ShowDialog() == DialogResult.OK)
+				{
+					ExportJson(sfd.FileName, format);
+				}
+			}
+		}
+
+		private void ExportJson(string outputPath, string format)
+		{
+			try
+			{
+				using (MemoryStream binaryBuffer = GetCompiledEditorBuffer())
+				{
+					if (!LibLR1JsonBridge.TryExportJson(format, m_fileName, binaryBuffer, out string json, out string error))
+					{
+						throw new InvalidOperationException(error);
+					}
+
+					File.WriteAllText(outputPath, json, Encoding.UTF8);
+				}
+			}
+			catch (Exception ex)
+			{
+				MessageBox.Show(ex.Message, "Export as JSON", MessageBoxButtons.OK, MessageBoxIcon.Error);
+			}
+		}
+
+		private void DisplayImportJsonDialog()
+		{
+			using (OpenFileDialog ofd = new OpenFileDialog()
+			{
+				FileName = "",
+				Filter = "JSON Files|*.json"
+			})
+			{
+				if (ofd.ShowDialog() == DialogResult.OK)
+				{
+					ImportJson(ofd.FileName);
+				}
+			}
+		}
+
+		private void ImportJson(string inputPath)
+		{
+			try
+			{
+				if (!LibLR1JsonBridge.TryImportJson(File.ReadAllText(inputPath), out ImportedJsonDocument imported, out string error))
+				{
+					throw new InvalidOperationException(error);
+				}
+
+				if (!LibLR1JsonBridge.TryWriteBinary(imported.Format, imported.Model, out MemoryStream binaryBuffer, out error))
+				{
+					throw new InvalidOperationException(error);
+				}
+
+				using (binaryBuffer)
+				using (LRBinaryReader reader = new LRBinaryReader(binaryBuffer, false))
+				{
+					LoadEditorFromReader(reader, imported.Format, imported.FileName, true);
+				}
+			}
+			catch (Exception ex)
+			{
+				MessageBox.Show(ex.Message, "Import as JSON", MessageBoxButtons.OK, MessageBoxIcon.Error);
+			}
 		}
 
 		private bool AreYouSure(string p_action)
@@ -217,6 +331,16 @@ namespace LR1BinaryEditor
 		private void BtnSave_Click(object sender, EventArgs e)
 		{
 			DisplaySaveDialog();
+		}
+
+		private void BtnExportJson_Click(object sender, EventArgs e)
+		{
+			DisplayExportJsonDialog();
+		}
+
+		private void BtnImportJson_Click(object sender, EventArgs e)
+		{
+			DisplayImportJsonDialog();
 		}
 
 		private void Form1_FormClosing(object sender, FormClosingEventArgs e)

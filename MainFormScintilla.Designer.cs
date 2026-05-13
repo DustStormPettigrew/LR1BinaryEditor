@@ -33,12 +33,16 @@
 			this.g_BtnNew = new System.Windows.Forms.ToolStripButton();
 			this.g_BtnOpen = new System.Windows.Forms.ToolStripButton();
 			this.g_BtnSave = new System.Windows.Forms.ToolStripButton();
+			this.g_BtnExportJson = new System.Windows.Forms.ToolStripButton();
+			this.g_BtnImportJson = new System.Windows.Forms.ToolStripButton();
 			this.g_StatusStrip = new System.Windows.Forms.StatusStrip();
 			this.g_LblBuild = new System.Windows.Forms.ToolStripStatusLabel();
 			this.g_MenuStrip = new System.Windows.Forms.MenuStrip();
 			this.g_MenuBtnNew = new System.Windows.Forms.ToolStripMenuItem();
 			this.g_MenuBtnOpen = new System.Windows.Forms.ToolStripMenuItem();
 			this.g_MenuBtnSave = new System.Windows.Forms.ToolStripMenuItem();
+			this.g_MenuBtnExportJson = new System.Windows.Forms.ToolStripMenuItem();
+			this.g_MenuBtnImportJson = new System.Windows.Forms.ToolStripMenuItem();
 			this.g_ToolStrip.SuspendLayout();
 			this.g_StatusStrip.SuspendLayout();
 			this.g_MenuStrip.SuspendLayout();
@@ -50,7 +54,9 @@
 			this.g_ToolStrip.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
 			this.g_BtnNew,
 			this.g_BtnOpen,
-			this.g_BtnSave});
+			this.g_BtnSave,
+			this.g_BtnExportJson,
+			this.g_BtnImportJson});
 			this.g_ToolStrip.Location = new System.Drawing.Point(0, 0);
 			this.g_ToolStrip.Name = "g_ToolStrip";
 			this.g_ToolStrip.Size = new System.Drawing.Size(552, 25);
@@ -87,6 +93,26 @@
 			this.g_BtnSave.Text = "&Save";
 			this.g_BtnSave.Click += new System.EventHandler(this.BtnSave_Click);
 			// 
+			// g_BtnExportJson
+			// 
+			this.g_BtnExportJson.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Image;
+			this.g_BtnExportJson.Image = ((System.Drawing.Image)(resources.GetObject("g_BtnSave.Image")));
+			this.g_BtnExportJson.ImageTransparentColor = System.Drawing.Color.Magenta;
+			this.g_BtnExportJson.Name = "g_BtnExportJson";
+			this.g_BtnExportJson.Size = new System.Drawing.Size(23, 22);
+			this.g_BtnExportJson.Text = "Export as &JSON";
+			this.g_BtnExportJson.Click += new System.EventHandler(this.BtnExportJson_Click);
+			// 
+			// g_BtnImportJson
+			// 
+			this.g_BtnImportJson.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Image;
+			this.g_BtnImportJson.Image = ((System.Drawing.Image)(resources.GetObject("g_BtnOpen.Image")));
+			this.g_BtnImportJson.ImageTransparentColor = System.Drawing.Color.Magenta;
+			this.g_BtnImportJson.Name = "g_BtnImportJson";
+			this.g_BtnImportJson.Size = new System.Drawing.Size(23, 22);
+			this.g_BtnImportJson.Text = "Import as JSON";
+			this.g_BtnImportJson.Click += new System.EventHandler(this.BtnImportJson_Click);
+			// 
 			// g_StatusStrip
 			// 
 			this.g_StatusStrip.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
@@ -108,7 +134,9 @@
 			this.g_MenuStrip.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
 			this.g_MenuBtnNew,
 			this.g_MenuBtnOpen,
-			this.g_MenuBtnSave});
+			this.g_MenuBtnSave,
+			this.g_MenuBtnExportJson,
+			this.g_MenuBtnImportJson});
 			this.g_MenuStrip.Location = new System.Drawing.Point(0, 0);
 			this.g_MenuStrip.Name = "g_MenuStrip";
 			this.g_MenuStrip.Size = new System.Drawing.Size(552, 24);
@@ -140,6 +168,22 @@
 			this.g_MenuBtnSave.Text = "Save";
 			this.g_MenuBtnSave.Click += new System.EventHandler(this.BtnSave_Click);
 			// 
+			// g_MenuBtnExportJson
+			// 
+			this.g_MenuBtnExportJson.Name = "g_MenuBtnExportJson";
+			this.g_MenuBtnExportJson.ShortcutKeys = ((System.Windows.Forms.Keys)((System.Windows.Forms.Keys.Control | System.Windows.Forms.Keys.E)));
+			this.g_MenuBtnExportJson.Size = new System.Drawing.Size(103, 20);
+			this.g_MenuBtnExportJson.Text = "Export as JSON";
+			this.g_MenuBtnExportJson.Click += new System.EventHandler(this.BtnExportJson_Click);
+			// 
+			// g_MenuBtnImportJson
+			// 
+			this.g_MenuBtnImportJson.Name = "g_MenuBtnImportJson";
+			this.g_MenuBtnImportJson.ShortcutKeys = ((System.Windows.Forms.Keys)((System.Windows.Forms.Keys.Control | System.Windows.Forms.Keys.I)));
+			this.g_MenuBtnImportJson.Size = new System.Drawing.Size(103, 20);
+			this.g_MenuBtnImportJson.Text = "Import as JSON";
+			this.g_MenuBtnImportJson.Click += new System.EventHandler(this.BtnImportJson_Click);
+			// 
 			// MainFormScintilla
 			// 
 			this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
@@ -169,11 +213,15 @@
 		private System.Windows.Forms.ToolStripButton g_BtnNew;
 		private System.Windows.Forms.ToolStripButton g_BtnOpen;
 		private System.Windows.Forms.ToolStripButton g_BtnSave;
+		private System.Windows.Forms.ToolStripButton g_BtnExportJson;
+		private System.Windows.Forms.ToolStripButton g_BtnImportJson;
 		private System.Windows.Forms.StatusStrip g_StatusStrip;
 		private System.Windows.Forms.ToolStripStatusLabel g_LblBuild;
 		private System.Windows.Forms.MenuStrip g_MenuStrip;
 		private System.Windows.Forms.ToolStripMenuItem g_MenuBtnNew;
 		private System.Windows.Forms.ToolStripMenuItem g_MenuBtnOpen;
 		private System.Windows.Forms.ToolStripMenuItem g_MenuBtnSave;
+		private System.Windows.Forms.ToolStripMenuItem g_MenuBtnExportJson;
+		private System.Windows.Forms.ToolStripMenuItem g_MenuBtnImportJson;
 	}
 }
