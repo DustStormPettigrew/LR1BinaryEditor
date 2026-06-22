@@ -1,0 +1,74 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ae="clr-namespace:AvaloniaEdit;assembly=AvaloniaEdit"
+        x:Class="LR1BinaryEditor.MainWindow"
+        Title="LR1 Binary Editor"
+        Width="800" Height="600"
+        MinWidth="400" MinHeight="300"
+        WindowStartupLocation="CenterScreen"
+        Closing="Window_Closing">
+  <DockPanel>
+    <Menu DockPanel.Dock="Top"
+          FontSize="12"
+          MinHeight="22"
+          Padding="0">
+      <Menu.Styles>
+        <Style Selector="MenuItem">
+          <Setter Property="FontSize" Value="12"/>
+          <Setter Property="Padding" Value="6,2"/>
+          <Setter Property="MinHeight" Value="22"/>
+        </Style>
+      </Menu.Styles>
+      <MenuItem Header="_File">
+        <MenuItem Header="_New" Click="BtnNew_Click" InputGesture="Ctrl+N"/>
+        <MenuItem Header="_Open..." Click="BtnOpen_Click" InputGesture="Ctrl+O"/>
+        <MenuItem Header="_Save..." Click="BtnSave_Click" InputGesture="Ctrl+S"/>
+        <Separator/>
+        <MenuItem Header="Export as _JSON..." Click="BtnExportJson_Click" InputGesture="Ctrl+E"/>
+        <MenuItem Header="_Import as JSON..." Click="BtnImportJson_Click" InputGesture="Ctrl+I"/>
+      </MenuItem>
+      <MenuItem Header="_Edit">
+        <MenuItem Header="_Syntax Highlighting Colors..." Click="MenuSyntaxColors_Click"/>
+      </MenuItem>
+    </Menu>
+    <Border DockPanel.Dock="Top" BorderThickness="0,0,0,1"
+            BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}">
+      <StackPanel Orientation="Horizontal" Spacing="1" Margin="3,1">
+        <StackPanel.Styles>
+          <Style Selector="Button">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="MinHeight" Value="24"/>
+            <Setter Property="Padding" Value="5,2"/>
+            <Setter Property="Margin" Value="0"/>
+          </Style>
+        </StackPanel.Styles>
+        <Button Click="BtnNew_Click" ToolTip.Tip="New (Ctrl+N)" Width="24" Padding="3">
+          <Image Source="avares://LR1BinaryEditor/Assets/icon_new.png" Width="16" Height="16"/>
+        </Button>
+        <Button Click="BtnOpen_Click" ToolTip.Tip="Open (Ctrl+O)" Width="24" Padding="3">
+          <Image Source="avares://LR1BinaryEditor/Assets/icon_open.png" Width="16" Height="16"/>
+        </Button>
+        <Button Click="BtnSave_Click" ToolTip.Tip="Save (Ctrl+S)" Width="24" Padding="3">
+          <Image Source="avares://LR1BinaryEditor/Assets/icon_save.png" Width="16" Height="16"/>
+        </Button>
+        <Separator Width="1" Height="20" Background="{DynamicResource SystemControlForegroundBaseMediumBrush}" Margin="3,0"/>
+        <Button Content="Export JSON" Click="BtnExportJson_Click" ToolTip.Tip="Export as JSON (Ctrl+E)"/>
+        <Button Content="Import JSON" Click="BtnImportJson_Click" ToolTip.Tip="Import as JSON (Ctrl+I)"/>
+      </StackPanel>
+    </Border>
+    <Border DockPanel.Dock="Bottom"
+            BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+            BorderThickness="0,1,0,0"
+            Height="24">
+      <TextBlock x:Name="g_LblBuild" Margin="6,0" VerticalAlignment="Center" FontSize="11"/>
+    </Border>
+    <ae:TextEditor x:Name="g_Editor"
+                   FontFamily="Consolas,Menlo,Courier New,monospace"
+                   FontSize="13"
+                   Background="White"
+                   Foreground="Black"
+                   ShowLineNumbers="True"
+                   HorizontalScrollBarVisibility="Auto"
+                   VerticalScrollBarVisibility="Auto"/>
+  </DockPanel>
+</Window>

@@ -51,25 +51,23 @@ But should not become a competing format implementation.
 
 ## UI Technology
 
-This project uses **ScintillaNET** as the main structured text editing surface.
+This project uses **Avalonia** with **AvaloniaEdit** as the main structured text editing surface.
 
-ScintillaNET is used for:
+AvaloniaEdit provides:
 
 - Syntax highlighting
 - Code folding
 - Line number margin
-- Smart indentation
 - Undo/redo buffer management
 
 ---
 
 ### Features actively used
 
-- Syntax highlighting via C++ lexer rules and custom `styles.xml`
-  - keywords include items like `float`, `f16`, `byte`, etc.
-- Code folding for structured sections
-- Auto-resizing line number gutter
-- C++-style smart indentation
+- Syntax highlighting via the AvaloniaEdit C++ definition and external keyword hints
+- Brace-based folding for structured sections
+- Line numbers
+- Persistent syntax-color customization under `%APPDATA%\LR1BinaryEditor\syntax-colors.json`
 - Undo/redo buffer cleared after file load so the loaded state becomes the baseline
 
 These editor behaviors are part of the product, not incidental implementation details, and should be preserved during refactors.
@@ -140,24 +138,24 @@ The Binary Editor should **not** own:
 ## Constraints
 
 - Do not reimplement format structures already available in LibLR1
-- Do not tightly couple ScintillaNET UI logic to binary parsing logic
+- Do not tightly couple AvaloniaEdit UI logic to binary parsing logic
 - Do not mix rendering or engine code into this project
 - Do not treat syntax styling rules as parsing rules
 - Do not rely on editor text formatting alone as proof of binary validity
 
 ---
 
-## ScintillaNET Rules
+## AvaloniaEdit Rules
 
 When modifying editor behavior:
 
-1. Preserve syntax highlighting behavior based on lexer + `styles.xml`
-2. Preserve code folding semantics and fold marker layout
-3. Preserve auto-sizing line numbers
-4. Preserve smart indentation behavior
-5. Preserve undo/redo reset after file load
+1. Preserve the Fluent AvaloniaEdit style include in `App.axaml`
+2. Preserve syntax highlighting and keyword hints from `blocks.cfg` / `properties.cfg`
+3. Preserve brace folding and line-number visibility
+4. Preserve undo/redo reset after file load
+5. Keep independent encodings (LRS, BMP, SRF) out of the token-stream editor
 
-ScintillaNET configuration should remain centralized and understandable.
+AvaloniaEdit configuration should remain centralized and understandable.
 
 Do not scatter lexer/style/folding setup across unrelated files.
 
@@ -236,7 +234,7 @@ When refactoring:
 
 - preserve behavior first
 - separate parser, text generation, and editor setup
-- keep ScintillaNET-specific code isolated
+- keep AvaloniaEdit-specific code isolated
 - extract reusable format handlers where possible
 - prefer incremental migration over large rewrites
 
@@ -263,7 +261,7 @@ If modernizing the project:
 When working on this project:
 
 1. Treat LibLR1 as the canonical format layer
-2. Preserve ScintillaNET-based editing behavior
+2. Preserve AvaloniaEdit-based editing behavior
 3. Separate parsing from text rendering from UI/editor configuration
 4. Prioritize round-trip correctness over cosmetic cleanup
 5. Do not silently invent unsupported format behavior
@@ -275,25 +273,25 @@ When working on this project:
 ## Repository Guidelines
 
 ### Project Structure & Module Organization
-`LR1BinaryEditor.sln` contains a single WinForms application in `LR1BinaryEditor/`. Core UI logic lives in `MainFormScintilla.cs`, startup is in `Program.cs`, and parsing/helpers are split across `Util*.cs`. Runtime data files such as `blocks.cfg`, `properties.cfg`, and `styles.xml` are copied to the output directory and should stay in sync with code changes. `Properties/` contains WinForms resources and generated settings files. `scintilla/` is a vendored upstream dependency with its own sources and tests; avoid editing it unless the change is intentionally for the embedded editor stack.
+`LR1BinaryEditor.sln` contains a .NET 8 Avalonia application. Core UI logic lives in `MainWindow.axaml` / `MainWindow.axaml.cs`, startup is in `Program.cs`, and parsing/helpers are split across `Util*.cs`. `blocks.cfg` and `properties.cfg` are copied to the output directory and must stay in sync with code changes. `LibLR1JsonBridge.cs` is a thin reflection adapter over LibLR1 token-stream readers/writers. The legacy `scintilla/` directory is not part of the active UI stack.
 
 ### Build, Test, and Development Commands
 Use Windows tools for this repository.
 
 - `dotnet build LR1BinaryEditor.sln -c Debug`
-  Builds the solution for quick validation. In this environment, SDK-style MSBuild reports legacy `.resx` issues, so Visual Studio or a Developer Command Prompt may be more reliable.
+  Builds the Avalonia application for quick validation.
 - `dotnet build LR1BinaryEditor.sln -c Release`
   Produces the release build in `LR1BinaryEditor/bin/Release/`.
-- `start LR1BinaryEditor\\bin\\Debug\\LR1BinaryEditor.exe`
-  Launches the app after a successful debug build.
+- `dotnet run --project LR1BinaryEditor.csproj -- -no-highlight`
+  Launches the app without syntax highlighting for rendering diagnostics.
 
-The project targets .NET Framework 4.8, `x86`, and references `..\..\liblr1\LibLR1\bin\Release\LibLR1.dll`; make sure that sibling dependency is built first.
+The project targets .NET 8 and references `..\LibLR1\LibLR1.csproj`; build from this checkout so the shared project reference resolves.
 
 ### Coding Style & Naming Conventions
-Match the existing C# style: tabs for indentation, Allman braces, and concise inline comments only where needed. Keep naming consistent with the current prefixes: `k_` for constants, `m_` for instance fields, `ms_` for static fields, `g_` for UI controls, and `p_` for method parameters. Prefer small helper methods in `Util*.cs` over adding long methods to the form class. Do not hand-edit `*.Designer.cs` unless the WinForms designer cannot express the change.
+Match the surrounding C# style and keep concise inline comments only where needed. Retain the established `k_`, `m_`, `ms_`, `g_`, and `p_` prefixes in existing code. Prefer small helpers in `Util*.cs` or focused Avalonia classes over expanding `MainWindow` unnecessarily. Do not reintroduce WinForms designer files.
 
 ### Testing Guidelines
-There are no first-party automated tests in this solution today. Validate changes by building the app and manually exercising open, edit, and save flows with representative binary files. If you touch `scintilla/`, use its upstream tests under `scintilla/test/`, but keep those changes isolated from editor feature work.
+There are no first-party automated tests in this solution today. Validate changes by building the app and manually exercising token-file open, edit, save, JSON export/import, folding, and raw-format rejection flows with representative files.
 
 ### Commit & Pull Request Guidelines
-Recent commits use short, imperative summaries such as `Add block and property annotations...` and `Automatically resize line-number margin...`. Follow that pattern: one clear sentence, no prefix clutter, and mention the affected feature or format. PRs should explain user-visible behavior, list manual validation steps, call out any dependency on `LibLR1`, and include screenshots when the WinForms UI changes.
+Recent commits use short, imperative summaries such as `Add block and property annotations...` and `Automatically resize line-number margin...`. Follow that pattern: one clear sentence, no prefix clutter, and mention the affected feature or format. PRs should explain user-visible behavior, list manual validation steps, call out any dependency on `LibLR1`, and include screenshots when the Avalonia UI changes.

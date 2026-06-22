@@ -24,7 +24,7 @@ namespace LR1BinaryEditor
 				ms_keywordInfoBlocks = new Dictionary<string, Dictionary<Token, string>>();
 			}
 
-			if (File.Exists(path_blocks_cfg))
+			if (File.Exists(path_props_cfg))
 			{
 				ms_keywordInfoProperties = LoadCfg(path_props_cfg);
 			}

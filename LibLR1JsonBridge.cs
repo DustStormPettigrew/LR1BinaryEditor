@@ -49,7 +49,7 @@ namespace LR1BinaryEditor
 
 			if (!adapter.CanWrite)
 			{
-				error = "LibLR1 can read ." + format + " files, but it does not expose a Save(LRBinaryWriter) method for JSON import yet.";
+				error = "LibLR1 can read ." + format + " files, but write support has not been implemented yet.";
 				return false;
 			}
 
@@ -117,7 +117,7 @@ namespace LR1BinaryEditor
 
 				if (!adapter.CanWrite)
 				{
-					error = "LibLR1 can read ." + adapter.Format + " files, but it does not expose a Save(LRBinaryWriter) method for JSON import yet.";
+					error = "LibLR1 can read ." + adapter.Format + " files, but write support has not been implemented yet.";
 					return false;
 				}
 
@@ -171,7 +171,7 @@ namespace LR1BinaryEditor
 
 			if (!adapter.CanWrite)
 			{
-				error = "LibLR1 can read ." + adapter.Format + " files, but it does not expose a Save(LRBinaryWriter) method for JSON import yet.";
+				error = "LibLR1 can read ." + adapter.Format + " files, but write support has not been implemented yet.";
 				return false;
 			}
 
@@ -226,6 +226,12 @@ namespace LR1BinaryEditor
 			if (IsSimpleType(type))
 			{
 				return value;
+			}
+
+			// byte[] → base64 string for compact round-trip representation
+			if (type == typeof(byte[]))
+			{
+				return Convert.ToBase64String((byte[])value);
 			}
 
 			if (TryGetDictionaryTypes(type, out _, out _))
@@ -286,6 +292,12 @@ namespace LR1BinaryEditor
 					addMethod.Invoke(dictionary, new[] { key, value });
 				}
 				return dictionary;
+			}
+
+			// byte[] is deserialized from base64 string (matches SerializeValue encoding)
+			if (underlyingType == typeof(byte[]))
+			{
+				return Convert.FromBase64String(element.GetString());
 			}
 
 			if (underlyingType.IsArray)
@@ -621,8 +633,8 @@ namespace LR1BinaryEditor
 
 		private sealed class FormatAdapter
 		{
-			private readonly ConstructorInfo m_readerConstructor;
-			private readonly MethodInfo m_saveMethod;
+			private readonly ConstructorInfo m_readerConstructor;  // (LRBinaryReader) — token path
+			private readonly MethodInfo m_saveMethod;              // Save(LRBinaryWriter) — token path
 
 			public FormatAdapter(string format, Type modelType)
 			{
@@ -640,10 +652,12 @@ namespace LR1BinaryEditor
 			public object Read(Stream stream)
 			{
 				stream.Position = 0;
-				using (LRBinaryReader reader = new LRBinaryReader(stream, false))
+				if (m_readerConstructor != null)
 				{
-					return m_readerConstructor.Invoke(new object[] { reader });
+					using (LRBinaryReader reader = new LRBinaryReader(stream, false))
+						return m_readerConstructor.Invoke(new object[] { reader });
 				}
+				throw new InvalidOperationException("No token-stream LibLR1 reader is available for ." + Format + " files.");
 			}
 
 			public MemoryStream Write(object model)
@@ -654,9 +668,14 @@ namespace LR1BinaryEditor
 				}
 
 				MemoryStream stream = new MemoryStream();
-				using (LRBinaryWriter writer = new LRBinaryWriter(stream, false))
+				if (m_saveMethod != null)
 				{
-					m_saveMethod.Invoke(model, new object[] { writer });
+					using (LRBinaryWriter writer = new LRBinaryWriter(stream, false))
+						m_saveMethod.Invoke(model, new object[] { writer });
+				}
+				else
+				{
+					throw new InvalidOperationException("No token-stream LibLR1 writer is available for ." + Format + " files.");
 				}
 				stream.Position = 0;
 				return stream;
