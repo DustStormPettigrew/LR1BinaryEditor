@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using Avalonia.Threading;
 using System;
 
 namespace LR1BinaryEditor
@@ -16,7 +17,10 @@ namespace LR1BinaryEditor
         {
             if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
             {
-                desktop.MainWindow = new MainWindow(desktop.Args ?? Array.Empty<string>());
+                MainWindow mainWindow = new MainWindow(desktop.Args ?? Array.Empty<string>());
+                desktop.MainWindow = mainWindow;
+                Program.SingleInstance?.StartServer(args =>
+                    Dispatcher.UIThread.Post(() => mainWindow.OpenFilesFromExternal(args)));
             }
             base.OnFrameworkInitializationCompleted();
         }

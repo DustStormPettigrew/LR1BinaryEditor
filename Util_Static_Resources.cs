@@ -97,5 +97,7 @@ namespace LR1BinaryEditor
 			{ "TRB", "Trigger Binary" },
 			{ "WDB", "3D Scene" },
 		};
+
+		internal static IReadOnlyDictionary<string, string> FileFormats => k_fileFormats;
 	}
 }

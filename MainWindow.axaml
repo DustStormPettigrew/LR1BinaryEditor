@@ -1,6 +1,5 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:ae="clr-namespace:AvaloniaEdit;assembly=AvaloniaEdit"
         x:Class="LR1BinaryEditor.MainWindow"
         Title="LR1 Binary Editor"
         Width="800" Height="600"
@@ -22,7 +21,8 @@
       <MenuItem Header="_File">
         <MenuItem Header="_New" Click="BtnNew_Click" InputGesture="Ctrl+N"/>
         <MenuItem Header="_Open..." Click="BtnOpen_Click" InputGesture="Ctrl+O"/>
-        <MenuItem Header="_Save..." Click="BtnSave_Click" InputGesture="Ctrl+S"/>
+        <MenuItem Header="_Save" Click="BtnSave_Click" InputGesture="Ctrl+S"/>
+        <MenuItem Header="Save _As..." Click="BtnSaveAs_Click" InputGesture="Ctrl+Shift+S"/>
         <Separator/>
         <MenuItem Header="Export as _JSON..." Click="BtnExportJson_Click" InputGesture="Ctrl+E"/>
         <MenuItem Header="_Import as JSON..." Click="BtnImportJson_Click" InputGesture="Ctrl+I"/>
@@ -30,6 +30,7 @@
       <MenuItem Header="_Edit">
         <MenuItem Header="_Syntax Highlighting Colors..." Click="MenuSyntaxColors_Click"/>
       </MenuItem>
+      <MenuItem Header="_About" Click="MenuAbout_Click"/>
     </Menu>
     <Border DockPanel.Dock="Top" BorderThickness="0,0,0,1"
             BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}">
@@ -62,13 +63,17 @@
             Height="24">
       <TextBlock x:Name="g_LblBuild" Margin="6,0" VerticalAlignment="Center" FontSize="11"/>
     </Border>
-    <ae:TextEditor x:Name="g_Editor"
-                   FontFamily="Consolas,Menlo,Courier New,monospace"
-                   FontSize="13"
-                   Background="White"
-                   Foreground="Black"
-                   ShowLineNumbers="True"
-                   HorizontalScrollBarVisibility="Auto"
-                   VerticalScrollBarVisibility="Auto"/>
+    <TabControl x:Name="g_Tabs"
+                FontSize="12"
+                Padding="0">
+      <TabControl.Styles>
+        <Style Selector="TabItem">
+          <Setter Property="FontSize" Value="12"/>
+          <Setter Property="Padding" Value="0"/>
+          <Setter Property="Margin" Value="1,2,1,0"/>
+          <Setter Property="MinHeight" Value="26"/>
+        </Style>
+      </TabControl.Styles>
+    </TabControl>
   </DockPanel>
 </Window>

@@ -12,84 +12,102 @@ namespace LR1BinaryEditor
 	static partial class Util
 	{
 		private const string k_castByte      = "(byte)";
+		private const string k_castBool      = "(bool)";
 		private const string k_castFloat     = "(float)";
 		private const string k_castFract8    = "(f8)";
 		private const string k_castFract16   = "(f16)";
 		private const string k_castInt       = "(int)";
 		private const string k_castUshort    = "(ushort)";
-		private const string k_prefixKeyword = "k_";
+		private const string k_prefixToken   = "0x";
+		private const string k_legacyPrefixKeyword = "k_";
 
 		private static IFormatProvider ms_cultureInfo = new CultureInfo("en-US");
 
-		public static void RecursiveAppend(LRBinaryReader p_br, Token p_token, ref StringBuilder p_buffer, ref int p_indent, ref int p_sqBracketStack, ref int p_sqBracketCount, string p_format)
+		public static void RecursiveAppend(LRBinaryReader p_br, Token p_token, ref StringBuilder p_buffer, ref int p_indent, ref int p_sqBracketStack, ref int p_sqBracketCount, ref string p_pendingKeywordInfo, string p_format)
 		{
 			switch (p_token)
 			{
 				case Token.Fract16:
 				{
 					Open_Print(ref p_buffer, k_castFract16 + SafeFloatToString(p_br.ReadUShort() / 256f), p_indent, p_sqBracketStack, p_sqBracketCount++);
+					p_pendingKeywordInfo = null;
 					break;
 				}
 				case Token.Fract8:
 				{
 					Open_Print(ref p_buffer, k_castFract8 + SafeFloatToString(p_br.ReadByte() / 16f), p_indent, p_sqBracketStack, p_sqBracketCount++);
+					p_pendingKeywordInfo = null;
 					break;
 				}
 				case Token.Byte:
 				{
-					Open_Print(ref p_buffer, k_castByte + p_br.ReadByte().ToString(), p_indent, p_sqBracketStack, p_sqBracketCount++);
+					byte value = p_br.ReadByte();
+					string cast = IsBooleanKeywordInfo(p_pendingKeywordInfo) && (value == 0 || value == 1) ? k_castBool : k_castByte;
+					Open_Print(ref p_buffer, cast + value.ToString(), p_indent, p_sqBracketStack, p_sqBracketCount++);
+					p_pendingKeywordInfo = null;
 					break;
 				}
 				case Token.Float:
 				{
 					Open_Print(ref p_buffer, k_castFloat + SafeFloatToString(p_br.ReadFloat()), p_indent, p_sqBracketStack, p_sqBracketCount++);
+					p_pendingKeywordInfo = null;
 					break;
 				}
 				case Token.Int32:
 				{
-					Open_Print(ref p_buffer, p_br.ReadInt().ToString(), p_indent, p_sqBracketStack, p_sqBracketCount++);
+					string cast = p_sqBracketStack > 0 ? "" : k_castInt;
+					Open_Print(ref p_buffer, cast + p_br.ReadInt().ToString(), p_indent, p_sqBracketStack, p_sqBracketCount++);
+					p_pendingKeywordInfo = null;
 					break;
 				}
 				case Token.LeftBracket:
 				{
 					p_sqBracketCount = -1;
 					Open_Print(ref p_buffer, "[", p_indent, ++p_sqBracketStack, p_sqBracketCount++);
+					p_pendingKeywordInfo = null;
 					break;
 				}
 				case Token.LeftCurly:
 				{
 					Open_Print(ref p_buffer, "{", p_indent++, p_sqBracketStack, p_sqBracketCount++);
+					p_pendingKeywordInfo = null;
 					break;
 				}
 				case Token.RightBracket:
 				{
 					p_sqBracketCount = -1;
 					Open_Print(ref p_buffer, "]", p_indent, --p_sqBracketStack, p_sqBracketCount++);
+					p_pendingKeywordInfo = null;
 					break;
 				}
 				case Token.RightCurly:
 				{
 					Open_Print(ref p_buffer, "}", --p_indent, p_sqBracketStack, p_sqBracketCount++);
+					p_pendingKeywordInfo = null;
 					break;
 				}
 				case Token.String:
 				{
 					Open_Print(ref p_buffer, "\"" + AddSlashes(p_br.ReadString()) + "\"", p_indent, p_sqBracketStack, p_sqBracketCount++);
+					p_pendingKeywordInfo = null;
 					break;
 				}
 				case Token.UShort:
 				{
 					Open_Print(ref p_buffer, k_castUshort + p_br.ReadUShort().ToString(), p_indent, p_sqBracketStack, p_sqBracketCount++);
+					p_pendingKeywordInfo = null;
 					break;
 				}
 				default:
 				{
-					string keyword_info = Util.GetKeywordInfo(p_format, p_token, (p_indent == 0));
+					bool isBlock = (p_indent == 0);
+					string keyword_info = Util.GetKeywordInfo(p_format, p_token, isBlock);
 					StringBuilder sb = new StringBuilder();
-					sb.Append(k_prefixKeyword);
+					sb.Append(k_prefixToken);
 					sb.Append(((byte)(p_token)).ToString("X2"));
 					sb.Append(keyword_info.Length > 0 ? "    // " + keyword_info : "");
 					Open_Print(ref p_buffer, sb.ToString(), p_indent, p_sqBracketStack, p_sqBracketCount++);
+					p_pendingKeywordInfo = isBlock ? null : keyword_info;
 					break;
 				}
 			}
@@ -141,9 +159,24 @@ namespace LR1BinaryEditor
 			}
 			if (s.EndsWith("."))
 			{
-				s = s.Substring(0, s.Length - 1);
+				s += "0";
+			}
+			else if (!s.Contains("."))
+			{
+				s += ".0";
 			}
 			return s;
+		}
+
+		private static bool IsBooleanKeywordInfo(string p_keywordInfo)
+		{
+			if (string.IsNullOrWhiteSpace(p_keywordInfo))
+				return false;
+
+			return Regex.IsMatch(p_keywordInfo, "\\bflag\\b", RegexOptions.IgnoreCase)
+				|| Regex.IsMatch(p_keywordInfo, "\\bflags\\b", RegexOptions.IgnoreCase)
+				|| Regex.IsMatch(p_keywordInfo, "\\bloop\\b", RegexOptions.IgnoreCase)
+				|| Regex.IsMatch(p_keywordInfo, "\\bmirrored\\b", RegexOptions.IgnoreCase);
 		}
 
 		public static string GetFileOpenFilter()
@@ -236,6 +269,12 @@ namespace LR1BinaryEditor
 				float value = ParseFloatToken(ref p_line);
 				p_writer.WriteFloatWithHeader(value);
 			}
+			else if (p_line.StartsWith(k_castBool))
+			{
+				p_line = p_line.Substring(k_castBool.Length);
+				byte value = ParseBoolByteToken(ref p_line);
+				p_writer.WriteByteWithHeader(value);
+			}
 			else if (p_line.StartsWith(k_castUshort))
 			{
 				p_line = p_line.Substring(k_castUshort.Length);
@@ -254,12 +293,23 @@ namespace LR1BinaryEditor
 				int value = ParseIntToken(ref p_line);
 				p_writer.WriteIntWithHeader(value);
 			}
-			else if (p_line.StartsWith(k_prefixKeyword))
+			else if (p_line.StartsWith(k_prefixToken, StringComparison.OrdinalIgnoreCase))
 			{
-				p_line = p_line.Substring(k_prefixKeyword.Length);
+				p_line = p_line.Substring(k_prefixToken.Length);
 				byte value = Convert.ToByte(p_line.Substring(0, 2), 16);
 				p_line = p_line.Substring(2);
-				p_writer.WriteByte(value);  // WITHOUT HEADER, YOU RETARD.
+				p_writer.WriteByte(value);  // WITHOUT HEADER.
+			}
+			else if (p_line.StartsWith(k_legacyPrefixKeyword))
+			{
+				p_line = p_line.Substring(k_legacyPrefixKeyword.Length);
+				byte value = Convert.ToByte(p_line.Substring(0, 2), 16);
+				p_line = p_line.Substring(2);
+				p_writer.WriteByte(value);  // WITHOUT HEADER.
+			}
+			else if (TryParseBoolLiteral(ref p_line, out byte boolValue))
+			{
+				p_writer.WriteByteWithHeader(boolValue);
 			}
 			else
 			{
@@ -302,6 +352,49 @@ namespace LR1BinaryEditor
 			string numeric = ReadNumeric(p_line, true);
 			p_line = p_line.Substring(numeric.Length);
 			return byte.Parse(numeric);
+		}
+
+		private static byte ParseBoolByteToken(ref string p_line)
+		{
+			if (TryParseBoolLiteral(ref p_line, out byte literalValue))
+				return literalValue;
+
+			byte value = ParseByteToken(ref p_line);
+			if (value > 1)
+				throw new Exception("Boolean byte value must be 0, 1, true, or false.");
+			return value;
+		}
+
+		private static bool TryParseBoolLiteral(ref string p_line, out byte p_value)
+		{
+			if (StartsWithWord(p_line, "true"))
+			{
+				p_line = p_line.Substring("true".Length);
+				p_value = 1;
+				return true;
+			}
+
+			if (StartsWithWord(p_line, "false"))
+			{
+				p_line = p_line.Substring("false".Length);
+				p_value = 0;
+				return true;
+			}
+
+			p_value = 0;
+			return false;
+		}
+
+		private static bool StartsWithWord(string p_text, string p_word)
+		{
+			if (!p_text.StartsWith(p_word, StringComparison.OrdinalIgnoreCase))
+				return false;
+
+			if (p_text.Length == p_word.Length)
+				return true;
+
+			char next = p_text[p_word.Length];
+			return !char.IsLetterOrDigit(next) && next != '_';
 		}
 
 		private static string ReadNumeric(string src, bool p_forceInt = false)
