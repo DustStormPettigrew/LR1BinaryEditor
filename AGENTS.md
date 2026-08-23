@@ -15,6 +15,8 @@ LibLR1 is the source of truth for all file format definitions.
 
 The Binary Editor should consume LibLR1 structures whenever possible and must not duplicate format logic unnecessarily.
 
+The Binary Editor depends directly on LibLR1. Do not add a dependency on `LR1Tools.EditorCore`; EditorCore is an optional schema-driven editing layer used primarily by the Tag Editor. Binary Editor owns its distinct raw text/token-tree, AvaloniaEdit undo/redo, annotation, navigation, and byte-diff workflow.
+
 ---
 
 ## Primary Responsibilities
@@ -38,6 +40,9 @@ LibLR1 should be used for:
 - parsing known structures
 - defining shared types
 - maintaining format consistency
+- the canonical registered-format and inspection boundary
+- generated schema and source-provenance metadata
+- validation of candidate output before final writes
 
 The Binary Editor may provide:
 
@@ -46,6 +51,8 @@ The Binary Editor may provide:
 - experimental structure exploration
 
 But should not become a competing format implementation.
+
+Where the private format registry or `LibLR1JsonBridge.cs` duplicates information now exposed by stable LibLR1 APIs, migrate directly to those LibLR1 APIs. Do not route that migration through EditorCore.
 
 ---
 
