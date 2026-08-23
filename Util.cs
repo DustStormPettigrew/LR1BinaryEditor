@@ -133,21 +133,25 @@ namespace LR1BinaryEditor
 		public static string GetKeywordInfo(string p_format, Token p_token, bool p_isBlock)
 		{
 			p_format = p_format.ToUpper();
+			string canonical = BinaryEditorMetadataCatalog.GetTokenInfo(p_format, p_token, p_isBlock);
+			string local = "";
 			if (p_isBlock)
 			{
 				if (ms_keywordInfoBlocks.ContainsKey(p_format) && ms_keywordInfoBlocks[p_format].ContainsKey(p_token))
 				{
-					return ms_keywordInfoBlocks[p_format][p_token];
+					local = ms_keywordInfoBlocks[p_format][p_token];
 				}
 			}
 			else
 			{
 				if (ms_keywordInfoProperties.ContainsKey(p_format) && ms_keywordInfoProperties[p_format].ContainsKey(p_token))
 				{
-					return ms_keywordInfoProperties[p_format][p_token];
+					local = ms_keywordInfoProperties[p_format][p_token];
 				}
 			}
-			return "";
+			if (string.IsNullOrWhiteSpace(canonical)) return local;
+			if (string.IsNullOrWhiteSpace(local) || canonical.StartsWith(local, StringComparison.OrdinalIgnoreCase)) return canonical;
+			return canonical + " | presentation: " + local;
 		}
 
 		private static string SafeFloatToString(float p_float)
@@ -183,10 +187,11 @@ namespace LR1BinaryEditor
 		{
 			string bufferAll = "";
 			string bufferIndividual = "";
-			foreach (KeyValuePair<string, string> kvp in k_fileFormats)
+			foreach (string format in LibLR1.Schema.SchemaStructureProvider.Formats)
 			{
-				bufferAll += "*." + kvp.Key + ";";
-				bufferIndividual += "|" + (kvp.Value != "" ? kvp.Value : "Unknown_" + kvp.Key) + " (*." + kvp.Key + ")|*." + kvp.Key;
+				k_formatDescriptions.TryGetValue(format, out string description);
+				bufferAll += "*." + format + ";";
+				bufferIndividual += "|" + (!string.IsNullOrWhiteSpace(description) ? description : "LibLR1 " + format) + " (*." + format + ")|*." + format;
 			}
 			return "Binary Files|" + bufferAll + bufferIndividual;
 		}

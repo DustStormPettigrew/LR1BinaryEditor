@@ -57,7 +57,7 @@ namespace LR1BinaryEditor
 			return output;
 		}
 
-		private static readonly Dictionary<string, string> k_fileFormats = new Dictionary<string, string>() {
+		private static readonly Dictionary<string, string> k_formatDescriptions = new Dictionary<string, string>() {
 			{ "ADB", "Skeletal Animation" },
 			{ "BDB", "Bounding Data" },
 			{ "BVB", "Collision Mesh" },
@@ -76,6 +76,7 @@ namespace LR1BinaryEditor
 			{ "GHB", "Time-Trial Ghost Path" },
 			{ "HZB", "Hazards Binary" },
 			{ "IDB", "2D Image List" },
+			{ "JAM", "JAM Archive" },
 			{ "LEB", "Lego Brick List" },
 			{ "LSB", "Loading Screen Layout" },
 			{ "MAB", "Material Animations" },
@@ -98,6 +99,6 @@ namespace LR1BinaryEditor
 			{ "WDB", "3D Scene" },
 		};
 
-		internal static IReadOnlyDictionary<string, string> FileFormats => k_fileFormats;
+		internal static IReadOnlyDictionary<string, string> FormatDescriptions => k_formatDescriptions;
 	}
 }

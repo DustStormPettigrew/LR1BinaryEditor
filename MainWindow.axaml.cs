@@ -4,10 +4,13 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
+using Avalonia.Platform;
 using AvaloniaEdit;
 using AvaloniaEdit.Folding;
 using AvaloniaEdit.Highlighting;
+using LibLR1;
 using LibLR1.IO;
 using LibLR1.Utils;
 using System;
@@ -28,8 +31,14 @@ namespace LR1BinaryEditor
 
         private readonly string m_versionText;
         private readonly List<EditorDocument> m_documents = new List<EditorDocument>();
+        private readonly BinaryEditorDocumentService m_documentService = new BinaryEditorDocumentService();
+        private readonly Dictionary<string, JamArchiveSession> m_jamSessions = new Dictionary<string, JamArchiveSession>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, Bitmap> m_iconCache = new Dictionary<string, Bitmap>(StringComparer.OrdinalIgnoreCase);
         private bool m_forceClose;
         private bool m_filePickerOpen;
+        private bool m_navigationPaneVisible = true;
+        private bool m_navigationPaneRight;
+        private string m_navigationRoot;
         private IHighlightingDefinition m_highlightingDefinition;
         private Dictionary<string, string> m_defaultHighlightColors = new Dictionary<string, string>();
 
@@ -42,6 +51,11 @@ namespace LR1BinaryEditor
         {
             InitializeComponent();
             g_Tabs.SelectionChanged += Tabs_SelectionChanged;
+            g_NavTree.SelectionChanged += NavTree_SelectionChanged;
+            LoadNavigationSettings();
+            UpdateNavigationStatus();
+            UpdateNavigationPaneLayout();
+            RefreshNavigationTree();
 
             Assembly assembly = Assembly.GetExecutingAssembly();
             Version ver = assembly.GetName().Version;
@@ -112,6 +126,7 @@ namespace LR1BinaryEditor
                 case Key.S: _ = SaveCurrentOrShowDialog(); e.Handled = true; break;
                 case Key.E: _ = DisplayExportJsonDialog(); e.Handled = true; break;
                 case Key.I: _ = DisplayImportJsonDialog(); e.Handled = true; break;
+                case Key.R: ValidateCurrentDocument(true); e.Handled = true; break;
             }
         }
 
@@ -173,11 +188,20 @@ namespace LR1BinaryEditor
             };
 
             document.FoldingManager = FoldingManager.Install(document.Editor.TextArea);
+            document.ListGroupSeparatorRenderer = new ListGroupSeparatorRenderer();
+            document.Editor.TextArea.TextView.BackgroundRenderers.Add(document.ListGroupSeparatorRenderer);
             document.Editor.TextChanged += (s, e) =>
             {
                 UpdateFoldings(document);
+                UpdateListGroupSeparators(document);
                 if (document.LoadingEditorText) return;
                 document.UnsavedChanges = true;
+                if (document.Session?.CanEditText == true)
+                {
+                    document.NeedsValidation = true;
+                    document.Session.State = BinaryEditorDocumentState.InspectionOnly;
+                    UpdateDocumentState(document, false);
+                }
                 UpdateDocumentHeader(document);
                 UpdateFormTitle();
             };
@@ -187,7 +211,19 @@ namespace LR1BinaryEditor
 
         private void AddDocument(EditorDocument document)
         {
-            document.Tab = new TabItem { Content = document.Editor, Tag = document };
+            var content = new DockPanel();
+            document.InspectionText = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(8, 5) };
+            document.InspectionBanner = new Border
+            {
+                Background = new SolidColorBrush(Color.Parse("#FFF2CC")),
+                BorderBrush = new SolidColorBrush(Color.Parse("#D6B656")),
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                Child = document.InspectionText
+            };
+            DockPanel.SetDock(document.InspectionBanner, Dock.Top);
+            content.Children.Add(document.InspectionBanner);
+            content.Children.Add(document.Editor);
+            document.Tab = new TabItem { Content = content, Tag = document };
             document.Tab.Header = CreateTabHeader(document);
 
             m_documents.Add(document);
@@ -196,6 +232,7 @@ namespace LR1BinaryEditor
             UpdateDocumentHeader(document);
             UpdateFormTitle();
             UpdateStatusText(document);
+            UpdateDocumentState(document, false);
         }
 
         private Control CreateTabHeader(EditorDocument document)
@@ -281,6 +318,7 @@ namespace LR1BinaryEditor
             UpdateAllTabHeaderVisuals();
             UpdateFormTitle();
             UpdateStatusText(CurrentDocument);
+            UpdateCommandState();
         }
 
         private async void CloseTab_Click(object sender, RoutedEventArgs e)
@@ -326,6 +364,7 @@ namespace LR1BinaryEditor
                 return;
 
             FoldingManager.Uninstall(document.FoldingManager);
+            document.Editor.TextArea.TextView.BackgroundRenderers.Remove(document.ListGroupSeparatorRenderer);
             m_documents.RemoveAt(index);
             g_Tabs.Items.Remove(document.Tab);
 
@@ -366,6 +405,328 @@ namespace LR1BinaryEditor
             }
         }
 
+        private async Task DisplayOpenFolderDialog()
+        {
+            var topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel == null) return;
+
+            var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+            {
+                Title = "Open Navigation Folder",
+                AllowMultiple = false
+            });
+
+            if (folders.Count == 0)
+                return;
+
+            string path = folders[0].TryGetLocalPath();
+            if (!string.IsNullOrWhiteSpace(path))
+                SetNavigationRoot(path);
+        }
+
+        private void SetNavigationRoot(string path)
+        {
+            m_navigationRoot = Path.GetFullPath(path);
+            RefreshNavigationTree();
+            SaveNavigationSettings();
+        }
+
+        private void RefreshNavigationTree()
+        {
+            g_NavTree.Items.Clear();
+
+            if (string.IsNullOrWhiteSpace(m_navigationRoot) || !Directory.Exists(m_navigationRoot))
+            {
+                UpdateNavigationStatus();
+                return;
+            }
+
+            try
+            {
+                DirectoryInfo root = new DirectoryInfo(m_navigationRoot);
+                TreeViewItem rootItem = CreateNavigationItem(
+                    root.Name,
+                    GetIconUri("icons8-home-48.png"),
+                    NavigationEntry.ForDirectory(root.FullName));
+                rootItem.IsExpanded = true;
+                PopulateDirectoryItem(rootItem, root);
+                g_NavTree.Items.Add(rootItem);
+            }
+            catch (Exception ex)
+            {
+                _ = ShowMessageAsync("Refresh Navigation", ex.Message);
+            }
+
+            UpdateNavigationStatus();
+        }
+
+        private void PopulateDirectoryItem(TreeViewItem parentItem, DirectoryInfo directory)
+        {
+            DirectoryInfo[] directories;
+            FileInfo[] files;
+            try
+            {
+                directories = directory.GetDirectories().OrderBy(d => d.Name, StringComparer.OrdinalIgnoreCase).ToArray();
+                files = directory.GetFiles().OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase).ToArray();
+            }
+            catch
+            {
+                return;
+            }
+
+            foreach (DirectoryInfo childDirectory in directories)
+            {
+                TreeViewItem childItem = CreateNavigationItem(
+                    childDirectory.Name,
+                    GetIconUri("icons8-folder-48.png"),
+                    NavigationEntry.ForDirectory(childDirectory.FullName));
+                PopulateDirectoryItem(childItem, childDirectory);
+                parentItem.Items.Add(childItem);
+            }
+
+            foreach (FileInfo file in files)
+            {
+                if (IsJamArchive(file))
+                {
+                    TreeViewItem archiveItem = CreateNavigationItem(
+                        file.Name,
+                        GetFileTypeIconUri("JAM"),
+                        NavigationEntry.ForJamArchive(file.FullName));
+                    PopulateJamArchiveItem(archiveItem, file.FullName);
+                    parentItem.Items.Add(archiveItem);
+                }
+                else if (IsSupportedEditableFileName(file.Name))
+                {
+                    parentItem.Items.Add(CreateNavigationItem(
+                        file.Name,
+                        GetFileTypeIconUri(GetFormatFromFileName(file.Name)),
+                        NavigationEntry.ForFile(file.FullName)));
+                }
+            }
+        }
+
+        private void PopulateJamArchiveItem(TreeViewItem archiveItem, string archivePath)
+        {
+            try
+            {
+                JAM archive = new JAM(archivePath);
+                Dictionary<string, TreeViewItem> directories = new Dictionary<string, TreeViewItem>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (string directory in archive.Directories.OrderBy(d => d, StringComparer.OrdinalIgnoreCase))
+                    EnsureJamDirectoryItem(archiveItem, directories, archivePath, directory);
+
+                foreach (JAMFile file in archive.Files.OrderBy(f => f.Path, StringComparer.OrdinalIgnoreCase))
+                {
+                    if (!IsSupportedEditableFileName(file.Name))
+                        continue;
+
+                    string parentPath = GetArchiveParentPath(file.Path);
+                    TreeViewItem parentItem = string.IsNullOrEmpty(parentPath)
+                        ? archiveItem
+                        : EnsureJamDirectoryItem(archiveItem, directories, archivePath, parentPath);
+
+                    parentItem.Items.Add(CreateNavigationItem(
+                        file.Name,
+                        GetFileTypeIconUri(GetFormatFromFileName(file.Name)),
+                        NavigationEntry.ForJamFile(archivePath, file.Path)));
+                }
+            }
+            catch (Exception ex)
+            {
+                archiveItem.Items.Add(CreateNavigationItem(
+                    "Unable to read archive: " + ex.Message,
+                    GetIconUri("icons8-file-48.png"),
+                    NavigationEntry.ForMessage(archivePath)));
+            }
+        }
+
+        private TreeViewItem EnsureJamDirectoryItem(TreeViewItem archiveItem, Dictionary<string, TreeViewItem> directories, string archivePath, string directoryPath)
+        {
+            if (directories.TryGetValue(directoryPath, out TreeViewItem existing))
+                return existing;
+
+            string parentPath = GetArchiveParentPath(directoryPath);
+            TreeViewItem parentItem = string.IsNullOrEmpty(parentPath)
+                ? archiveItem
+                : EnsureJamDirectoryItem(archiveItem, directories, archivePath, parentPath);
+
+            string name = Path.GetFileName(directoryPath.Replace('/', Path.DirectorySeparatorChar));
+            TreeViewItem item = CreateNavigationItem(
+                name,
+                GetIconUri("icons8-folder-48.png"),
+                NavigationEntry.ForJamDirectory(archivePath, directoryPath));
+            parentItem.Items.Add(item);
+            directories[directoryPath] = item;
+            return item;
+        }
+
+        private TreeViewItem CreateNavigationItem(string text, string iconUri, NavigationEntry entry)
+        {
+            Image icon = new Image
+            {
+                Source = GetIcon(iconUri),
+                Width = 16,
+                Height = 16,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            TextBlock label = new TextBlock
+            {
+                Text = text,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            };
+
+            StackPanel header = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 4
+            };
+            header.Children.Add(icon);
+            header.Children.Add(label);
+
+            TreeViewItem item = new TreeViewItem { Header = header, Tag = entry };
+            item.DoubleTapped += NavItem_DoubleTapped;
+            return item;
+        }
+
+        private Bitmap GetIcon(string uri)
+        {
+            if (!m_iconCache.TryGetValue(uri, out Bitmap bitmap))
+            {
+                bitmap = new Bitmap(AssetLoader.Open(new Uri(uri)));
+                m_iconCache[uri] = bitmap;
+            }
+            return bitmap;
+        }
+
+        private static string GetIconUri(string fileName)
+            => "avares://LR1BinaryEditor/Assets/AppIcons/" + fileName;
+
+        private static string GetFileTypeIconUri(string format)
+        {
+            string normalized = NormalizeFormat(format);
+            if (string.IsNullOrWhiteSpace(normalized))
+                return GetIconUri("icons8-file-48.png");
+            return "avares://LR1BinaryEditor/Assets/FileTypes/filetype-" + normalized.ToLowerInvariant() + ".png";
+        }
+
+        private static string GetArchiveParentPath(string archivePath)
+        {
+            int slash = archivePath.Replace('\\', '/').LastIndexOf('/');
+            return slash < 0 ? string.Empty : archivePath.Substring(0, slash).Replace('\\', '/');
+        }
+
+        private void NavTree_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            UpdateNavigationStatus();
+        }
+
+        private void NavItem_DoubleTapped(object sender, TappedEventArgs e)
+        {
+            if (sender is TreeViewItem item && item.Tag is NavigationEntry entry)
+            {
+                if (entry.Kind == NavigationEntryKind.File)
+                    Open(entry.Path);
+                else if (entry.Kind == NavigationEntryKind.JamFile)
+                    OpenJamEntry(entry.JamArchivePath, entry.JamEntryPath);
+                e.Handled = true;
+            }
+        }
+
+        private void UpdateNavigationStatus()
+        {
+            if (g_NavStatus == null)
+                return;
+
+            NavigationEntry selected = GetSelectedNavigationEntry();
+            if (selected != null)
+            {
+                g_NavStatus.Text = selected.GetStatusText();
+                return;
+            }
+
+            g_NavStatus.Text = string.IsNullOrWhiteSpace(m_navigationRoot)
+                ? "No folder selected"
+                : m_navigationRoot;
+        }
+
+        private NavigationEntry GetSelectedNavigationEntry()
+            => (g_NavTree?.SelectedItem as TreeViewItem)?.Tag as NavigationEntry;
+
+        private void UpdateNavigationPaneLayout()
+        {
+            if (g_NavigationPane == null)
+                return;
+
+            g_MenuNavigationPane.Header = m_navigationPaneVisible
+                ? "[x] Show _Navigation Pane"
+                : "Show _Navigation Pane";
+            g_MenuNavigationPaneRight.Header = m_navigationPaneRight
+                ? "[x] Navigation Pane on _Right"
+                : "Navigation Pane on _Right";
+            g_NavigationPane.IsVisible = m_navigationPaneVisible;
+            g_NavigationSplitter.IsVisible = m_navigationPaneVisible;
+
+            if (!m_navigationPaneVisible)
+            {
+                g_WorkArea.ColumnDefinitions[0].Width = new GridLength(0);
+                g_WorkArea.ColumnDefinitions[1].Width = new GridLength(0);
+                g_WorkArea.ColumnDefinitions[2].Width = new GridLength(1, GridUnitType.Star);
+                Grid.SetColumn(g_Tabs, 0);
+                Grid.SetColumnSpan(g_Tabs, 3);
+                return;
+            }
+
+            g_WorkArea.ColumnDefinitions[1].Width = new GridLength(5);
+            Grid.SetColumnSpan(g_Tabs, 1);
+
+            if (m_navigationPaneRight)
+            {
+                g_WorkArea.ColumnDefinitions[0].Width = new GridLength(1, GridUnitType.Star);
+                g_WorkArea.ColumnDefinitions[2].Width = new GridLength(260);
+                Grid.SetColumn(g_Tabs, 0);
+                Grid.SetColumn(g_NavigationSplitter, 1);
+                Grid.SetColumn(g_NavigationPane, 2);
+                g_NavigationPane.BorderThickness = new Thickness(1, 0, 0, 0);
+            }
+            else
+            {
+                g_WorkArea.ColumnDefinitions[0].Width = new GridLength(260);
+                g_WorkArea.ColumnDefinitions[2].Width = new GridLength(1, GridUnitType.Star);
+                Grid.SetColumn(g_NavigationPane, 0);
+                Grid.SetColumn(g_NavigationSplitter, 1);
+                Grid.SetColumn(g_Tabs, 2);
+                g_NavigationPane.BorderThickness = new Thickness(0, 0, 1, 0);
+            }
+        }
+
+        private async Task SaveAllChangedDocumentsAsync()
+        {
+            EditorDocument[] changedDocuments = m_documents.Where(document => document.UnsavedChanges).ToArray();
+            if (changedDocuments.Length == 0)
+            {
+                await ShowMessageAsync("Save All", "There are no pending changes to save.");
+                return;
+            }
+
+            int choice = await ShowDialogInternal(
+                "Save All",
+                string.Format("Save changes to {0} open file(s)?", changedDocuments.Length),
+                new[] { "Save All", "Cancel" });
+
+            if (choice != 0)
+                return;
+
+            foreach (EditorDocument document in changedDocuments)
+            {
+                g_Tabs.SelectedItem = document.Tab;
+                bool saved = await SaveDocumentOrShowDialog(document);
+                if (!saved)
+                    break;
+            }
+        }
+
         private void OpenFiles(IEnumerable<string> filePaths)
         {
             foreach (string filePath in filePaths)
@@ -388,26 +749,82 @@ namespace LR1BinaryEditor
                 }
 
                 FileInfo fi = new FileInfo(fullPath);
-                string format = fi.Extension.Replace(".", "");
-                if (IsIndependentEncoding(fi))
+                if (IsJamArchive(fi))
                 {
-                    _ = ShowMessageAsync(
-                        "Unsupported Raw Format",
-                        IsLrsSaveFile(fi)
-                            ? "LRS saves use a fixed-struct encoding and are edited by LR1RacerEditor."
-                            : "This file uses an independent encoding and is not supported by LR1BinaryEditor's token-stream editor.");
+                    if (!string.IsNullOrWhiteSpace(fi.DirectoryName))
+                        SetNavigationRoot(fi.DirectoryName);
                     return;
                 }
 
-                using (LRBinaryReader br = BinaryFileHelper.Decompress(fullPath))
-                {
-                    LoadEditorFromReader(br, format, fi.Name, fullPath, false);
-                }
+                BinaryEditorDocumentSession session = m_documentService.Open(fullPath);
+                LoadEditorFromSession(session, fullPath, false);
             }
             catch (Exception ex)
             {
                 _ = ShowMessageAsync("Open Binary File", ex.Message);
             }
+        }
+
+        private void OpenJamEntry(string archivePath, string entryPath)
+        {
+            try
+            {
+                JamArchiveSession session = GetJamSession(archivePath);
+                string extractedPath = session.GetExtractedPath(entryPath);
+                Open(extractedPath, new JamEntrySource(archivePath, entryPath, session.TempRoot));
+            }
+            catch (Exception ex)
+            {
+                _ = ShowMessageAsync("Open JAM Entry", ex.Message);
+            }
+        }
+
+        private void Open(string filePath, JamEntrySource jamSource)
+        {
+            try
+            {
+                string fullPath = Path.GetFullPath(filePath);
+                EditorDocument existing = m_documents.FirstOrDefault(document =>
+                    document.JamSource != null
+                    && string.Equals(document.JamSource.ArchivePath, jamSource.ArchivePath, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(document.JamSource.EntryPath, jamSource.EntryPath, StringComparison.OrdinalIgnoreCase));
+
+                if (existing != null)
+                {
+                    g_Tabs.SelectedItem = existing.Tab;
+                    return;
+                }
+
+                FileInfo fi = new FileInfo(fullPath);
+                BinaryEditorDocumentSession session = m_documentService.Open(fullPath, fi.Name);
+                EditorDocument document = LoadEditorFromSession(session, fullPath, false);
+                document.JamSource = jamSource;
+                UpdateStatusText(document);
+            }
+            catch (Exception ex)
+            {
+                _ = ShowMessageAsync("Open JAM Entry", ex.Message);
+            }
+        }
+
+        private JamArchiveSession GetJamSession(string archivePath)
+        {
+            string fullPath = Path.GetFullPath(archivePath);
+            if (m_jamSessions.TryGetValue(fullPath, out JamArchiveSession session))
+                return session;
+
+            string tempRoot = Path.Combine(
+                Path.GetTempPath(),
+                "LR1BinaryEditor",
+                "JAM",
+                Path.GetFileNameWithoutExtension(fullPath) + "_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempRoot);
+
+            JAM archive = new JAM(fullPath);
+            archive.Extract(tempRoot, true);
+            session = new JamArchiveSession(fullPath, tempRoot);
+            m_jamSessions[fullPath] = session;
+            return session;
         }
 
         private Task<bool> SaveCurrentOrShowDialog()
@@ -418,6 +835,13 @@ namespace LR1BinaryEditor
 
         private Task<bool> SaveDocumentOrShowDialog(EditorDocument document)
         {
+            if (document.NeedsValidation && !ValidateDocument(document, true))
+                return Task.FromResult(false);
+            if (document.Session != null && !document.Session.CanWrite)
+            {
+                _ = ShowMessageAsync("Write Disabled", document.Session.Diagnostic ?? "Validate the document successfully before writing.");
+                return Task.FromResult(false);
+            }
             if (!CanSaveToCurrentFile(document))
                 return DisplaySaveAsDialog(document);
 
@@ -441,6 +865,13 @@ namespace LR1BinaryEditor
 
         private async Task<bool> DisplaySaveAsDialog(EditorDocument document)
         {
+            if (document.NeedsValidation && !ValidateDocument(document, true))
+                return false;
+            if (document.Session != null && !document.Session.CanWrite)
+            {
+                await ShowMessageAsync("Write Disabled", document.Session.Diagnostic ?? "Validate the document successfully before writing.");
+                return false;
+            }
             var topLevel = TopLevel.GetTopLevel(this);
             if (topLevel == null)
                 return false;
@@ -464,9 +895,17 @@ namespace LR1BinaryEditor
             try
             {
                 document.Editor.IsReadOnly = true;
-                using (MemoryStream ms = Util.Compile(document.Editor.Text))
-                using (FileStream fsOut = new FileStream(filePath, FileMode.Create, FileAccess.Write))
-                    fsOut.Write(ms.ToArray(), 0, (int)ms.Length);
+                string format = GetFormatFromFileName(Path.GetFileName(filePath));
+                if (document.Session == null || !string.Equals(document.Session.Format, format, StringComparison.OrdinalIgnoreCase))
+                    document.Session = m_documentService.CreateCandidate(format, Path.GetFileName(filePath), document.Editor.Text);
+                m_documentService.Write(document.Session, document.Editor.Text, filePath);
+
+                if (document.JamSource != null
+                    && string.Equals(Path.GetFullPath(filePath), Path.GetFullPath(document.FilePath), StringComparison.OrdinalIgnoreCase))
+                {
+                    JAM archive = JAM.FromDirectory(document.JamSource.TempRoot);
+                    archive.Write(document.JamSource.ArchivePath);
+                }
             }
             catch (Exception ex)
             {
@@ -475,36 +914,33 @@ namespace LR1BinaryEditor
             }
             finally
             {
-                document.Editor.IsReadOnly = false;
+                document.Editor.IsReadOnly = document.Session != null && !document.Session.CanEditText;
             }
 
             document.FileName = Path.GetFileName(filePath);
             document.FilePath = filePath;
             document.CurrentFormat = GetFormatFromFileName(document.FileName);
+            if (document.JamSource != null
+                && !string.Equals(Path.GetFullPath(filePath), Path.GetFullPath(document.JamSource.GetExtractedPath()), StringComparison.OrdinalIgnoreCase))
+            {
+                document.JamSource = null;
+            }
             document.UnsavedChanges = false;
             UpdateDocumentHeader(document);
             UpdateFormTitle();
+            UpdateStatusText(document);
+            UpdateDocumentState(document, false);
             return true;
         }
 
-        private void LoadEditorFromReader(LRBinaryReader reader, string format, string fileName, string filePath, bool markDirty)
+        private EditorDocument LoadEditorFromSession(BinaryEditorDocumentSession session, string filePath, bool markDirty)
         {
-            int indent = 0;
-            int sqBracketStack = 0;
-            int sqBracketCount = -1;
-            StringBuilder buffer = new StringBuilder();
-            string normalizedFormat = NormalizeFormat(format);
-            string pendingKeywordInfo = null;
-
-            while (reader.BaseStream.Position < reader.BaseStream.Length)
-            {
-                Token token = reader.ReadToken();
-                Util.RecursiveAppend(reader, token, ref buffer, ref indent, ref sqBracketStack, ref sqBracketCount, ref pendingKeywordInfo, normalizedFormat);
-            }
-
-            EditorDocument document = CreateDocument(fileName, filePath, normalizedFormat, markDirty);
-            SetEditorText(document, buffer.ToString().Trim());
+            EditorDocument document = CreateDocument(session.FileName, filePath, session.Format, markDirty);
+            document.Session = session;
+            document.Editor.IsReadOnly = !session.CanEditText;
+            SetEditorText(document, session.Text);
             AddDocument(document);
+            return document;
         }
 
         private void SetEditorText(EditorDocument document, string text)
@@ -517,6 +953,7 @@ namespace LR1BinaryEditor
                 document.Editor.TextArea.Caret.Offset = 0;
                 document.Editor.ScrollToHome();
                 UpdateFoldings(document);
+                UpdateListGroupSeparators(document);
                 UpdateStatusText(document);
             }
             finally
@@ -528,6 +965,84 @@ namespace LR1BinaryEditor
         private MemoryStream GetCompiledEditorBuffer(EditorDocument document)
         {
             return Util.Compile(document.Editor.Text);
+        }
+
+        private void ValidateCurrentDocument(bool showResult)
+        {
+            EditorDocument document = CurrentDocument;
+            if (document != null) ValidateDocument(document, showResult);
+        }
+
+        private bool ValidateDocument(EditorDocument document, bool showResult)
+        {
+            if (document?.Session == null || !document.Session.CanEditText)
+            {
+                if (showResult) _ = ShowMessageAsync("Validate / Reparse", "This document is an exact raw/opaque byte view and is not routed through the token compiler.");
+                return document?.Session?.CanWrite == true;
+            }
+
+            m_documentService.Validate(document.Session, document.Editor.Text);
+            document.NeedsValidation = false;
+            UpdateDocumentState(document, true);
+            if (showResult)
+            {
+                string message = document.Session.CanWrite
+                    ? "LibLR1 reparsed the candidate completely. Writer-backed commands are enabled.\n\n" + document.Session.DecompressedDiff
+                    : document.Session.Diagnostic ?? "The candidate is still not writable.";
+                _ = ShowMessageAsync("Validate / Reparse", message);
+            }
+            return document.Session.CanWrite;
+        }
+
+        private void UpdateDocumentState(EditorDocument document, bool navigateIssue)
+        {
+            if (document?.InspectionBanner == null) return;
+            BinaryEditorDocumentSession session = document.Session;
+            bool show = session != null && (session.State != BinaryEditorDocumentState.ValidSemantic || document.NeedsValidation);
+            document.InspectionBanner.IsVisible = show;
+            if (show)
+            {
+                string state = document.NeedsValidation ? "Candidate needs validation" : session.State.ToString();
+                string encoding = session.Encoding.ToString();
+                string evidence = string.IsNullOrWhiteSpace(session.EvidenceStatus) ? "UNRESOLVED" : session.EvidenceStatus;
+                document.InspectionText.Text = $"{state} | {encoding} | evidence: {evidence}\n{session.Diagnostic ?? "Exact source bytes are retained; writer-backed commands remain disabled."}";
+            }
+            document.Editor.IsReadOnly = session != null && !session.CanEditText;
+            if (navigateIssue && session?.Issue?.DecompressedOffset is long offset)
+            {
+                int textOffset = Math.Min(document.Editor.Document.TextLength, session.OffsetMap.FindTextOffset(offset));
+                document.Editor.TextArea.Caret.Offset = textOffset;
+                document.Editor.ScrollToLine(document.Editor.Document.GetLineByOffset(textOffset).LineNumber);
+                document.Editor.Focus();
+            }
+            UpdateStatusText(document);
+            UpdateCommandState();
+        }
+
+        private void UpdateCommandState()
+        {
+            EditorDocument document = CurrentDocument;
+            bool writable = document != null && !document.NeedsValidation && (document.Session == null || document.Session.CanWrite);
+            bool exportable = document?.Session?.CanExportJson == true && !document.NeedsValidation;
+            bool tokenized = document?.Session?.CanEditText == true;
+            g_MenuSave.IsEnabled = writable;
+            g_MenuSaveAs.IsEnabled = writable;
+            g_ButtonSave.IsEnabled = writable;
+            g_MenuExportJson.IsEnabled = exportable;
+            g_ButtonExportJson.IsEnabled = exportable;
+            g_MenuValidate.IsEnabled = tokenized;
+            g_ButtonValidate.IsEnabled = tokenized;
+        }
+
+        private void ShowBinaryDiff()
+        {
+            EditorDocument document = CurrentDocument;
+            if (document == null) return;
+            if (document.Session?.CanEditText == true) ValidateDocument(document, false);
+            BinaryDiffSummary source = document.Session?.SourceDiff ?? BinaryEditorDocumentService.Compare(document.Session?.SourceData, document.Session?.SourceData);
+            BinaryDiffSummary expanded = document.Session?.DecompressedDiff;
+            string message = "Source versus canonical candidate\n" + source + (expanded == null ? string.Empty : "\n\nExpanded/token bytes\n" + expanded);
+            _ = ShowMessageAsync("Binary Diff", message);
         }
 
         private string GetFormatFromFileName(string fileName)
@@ -552,6 +1067,21 @@ namespace LR1BinaryEditor
                 || file.Extension.Equals(".SRF", StringComparison.OrdinalIgnoreCase);
         }
 
+        private static bool IsJamArchive(FileInfo file)
+            => file != null && file.Extension.Equals(".JAM", StringComparison.OrdinalIgnoreCase);
+
+        private static bool IsSupportedEditableFileName(string fileName)
+        {
+            string format = NormalizeFormat(Path.GetExtension(fileName));
+            if (string.IsNullOrWhiteSpace(format) || format == "JAM")
+                return false;
+
+            if (!LibLR1.Schema.SchemaStructureProvider.Formats.Contains(format, StringComparer.OrdinalIgnoreCase))
+                return false;
+
+            return true;
+        }
+
         private static bool IsLrsSaveFile(FileInfo file)
         {
             return file.Extension.Equals(".LRS", StringComparison.OrdinalIgnoreCase)
@@ -561,6 +1091,15 @@ namespace LR1BinaryEditor
         private void UpdateFoldings(EditorDocument document)
         {
             document.BraceFoldingStrategy.UpdateFoldings(document.FoldingManager, document.Editor.Document);
+        }
+
+        private void UpdateListGroupSeparators(EditorDocument document)
+        {
+            if (document?.ListGroupSeparatorRenderer == null)
+                return;
+
+            document.ListGroupSeparatorRenderer.UpdateText(document.Editor.Text);
+            document.Editor.TextArea.TextView.InvalidateVisual();
         }
 
         private async Task DisplayExportJsonDialog()
@@ -596,12 +1135,11 @@ namespace LR1BinaryEditor
         {
             try
             {
-                using (MemoryStream binaryBuffer = GetCompiledEditorBuffer(document))
-                {
-                    if (!LibLR1JsonBridge.TryExportJson(format, document.FileName, binaryBuffer, out string json, out string error))
-                        throw new InvalidOperationException(error);
-                    File.WriteAllText(outputPath, json, Encoding.UTF8);
-                }
+                if (document.NeedsValidation && !ValidateDocument(document, true)) return;
+                if (document.Session?.CanExportJson != true) throw new InvalidOperationException(document.Session?.Diagnostic ?? "JSON export requires a validated semantic LibLR1 document.");
+                if (!LibLR1JsonBridge.TryExportJson(format, document.FileName, document.Session.Inspection.Document, document.Session.CandidateData ?? document.Session.SourceData, out string json, out string error))
+                    throw new InvalidOperationException(error);
+                File.WriteAllText(outputPath, json, Encoding.UTF8);
             }
             catch (Exception ex)
             {
@@ -635,13 +1173,8 @@ namespace LR1BinaryEditor
                 if (!LibLR1JsonBridge.TryImportJson(jsonText, out ImportedJsonDocument imported, out string error))
                     throw new InvalidOperationException(error);
 
-                if (!LibLR1JsonBridge.TryWriteBinary(imported.Format, imported.Model, out MemoryStream binaryBuffer, out error))
-                    throw new InvalidOperationException(error);
-                using (binaryBuffer)
-                using (LRBinaryReader reader = new LRBinaryReader(binaryBuffer, false))
-                {
-                    LoadEditorFromReader(reader, imported.Format, imported.FileName, null, true);
-                }
+                BinaryEditorDocumentSession session = m_documentService.ImportJson(imported);
+                LoadEditorFromSession(session, null, true);
             }
             catch (Exception ex)
             {
@@ -670,7 +1203,20 @@ namespace LR1BinaryEditor
                 return;
             }
 
-            g_LblBuild.Text = string.Format("{0} | {1:N0} characters", m_versionText, document.Editor.Text?.Length ?? 0);
+            BinaryEditorDocumentSession session = document.Session;
+            if (session == null)
+            {
+                g_LblBuild.Text = string.Format("{0} | {1:N0} characters", m_versionText, document.Editor.Text?.Length ?? 0);
+                return;
+            }
+            g_LblBuild.Text = string.Format(
+                "{0} | {1} | {2} | {3} | source {4:N0} bytes | expanded {5:N0} bytes",
+                m_versionText,
+                session.State,
+                session.Encoding,
+                session.EvidenceStatus ?? "UNRESOLVED",
+                session.SourceData?.Length ?? 0,
+                session.DecompressedData?.Length ?? 0);
         }
 
         private async void MenuSyntaxColors_Click(object sender, RoutedEventArgs e)
@@ -753,8 +1299,63 @@ namespace LR1BinaryEditor
 
         private static string GetHighlightingColorsPath()
         {
+            return Path.Combine(GetSettingsDirectory(), "syntax-colors.json");
+        }
+
+        private void LoadNavigationSettings()
+        {
+            string path = GetNavigationSettingsPath();
+            if (!File.Exists(path))
+                return;
+
+            try
+            {
+                string json = File.ReadAllText(path);
+                NavigationSettings settings = JsonSerializer.Deserialize<NavigationSettings>(json);
+                if (settings == null)
+                    return;
+
+                m_navigationPaneVisible = settings.NavigationPaneVisible;
+                m_navigationPaneRight = settings.NavigationPaneRight;
+                if (!string.IsNullOrWhiteSpace(settings.NavigationRoot))
+                    m_navigationRoot = settings.NavigationRoot;
+            }
+            catch
+            {
+                // Ignore invalid user navigation config and keep defaults.
+            }
+        }
+
+        private void SaveNavigationSettings()
+        {
+            try
+            {
+                string path = GetNavigationSettingsPath();
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
+                var settings = new NavigationSettings
+                {
+                    NavigationPaneVisible = m_navigationPaneVisible,
+                    NavigationPaneRight = m_navigationPaneRight,
+                    NavigationRoot = m_navigationRoot
+                };
+                string json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(path, json);
+            }
+            catch
+            {
+                // Navigation preferences are convenience state; ignore persistence failures.
+            }
+        }
+
+        private static string GetNavigationSettingsPath()
+        {
+            return Path.Combine(GetSettingsDirectory(), "navigation.json");
+        }
+
+        private static string GetSettingsDirectory()
+        {
             string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            return Path.Combine(appData, "LR1BinaryEditor", "syntax-colors.json");
+            return Path.Combine(appData, "LR1BinaryEditor");
         }
 
         internal static bool TryParseColor(string text, out Avalonia.Media.Color color)
@@ -792,15 +1393,18 @@ namespace LR1BinaryEditor
         {
             var types = new List<FilePickerFileType>();
             types.Add(CreateAllSupportedFileType());
-            foreach (KeyValuePair<string, string> kvp in Util.FileFormats)
-                types.Add(CreateFileType(kvp.Key, kvp.Value));
+            foreach (string format in LibLR1.Schema.SchemaStructureProvider.Formats)
+            {
+                Util.FormatDescriptions.TryGetValue(format, out string description);
+                types.Add(CreateFileType(format, description));
+            }
             types.Add(FilePickerFileTypes.All);
             return types.ToArray();
         }
 
         private static FilePickerFileType CreateAllSupportedFileType()
         {
-            string[] patterns = Util.FileFormats.Keys
+            string[] patterns = LibLR1.Schema.SchemaStructureProvider.Formats
                 .Select(format => "*." + format)
                 .ToArray();
             return new FilePickerFileType("LR1 Binary Formats") { Patterns = patterns };
@@ -821,6 +1425,23 @@ namespace LR1BinaryEditor
         private void BtnSaveAs_Click(object sender, RoutedEventArgs e) => _ = DisplaySaveAsDialog();
         private void BtnExportJson_Click(object sender, RoutedEventArgs e) => _ = DisplayExportJsonDialog();
         private void BtnImportJson_Click(object sender, RoutedEventArgs e) => _ = DisplayImportJsonDialog();
+        private void BtnValidate_Click(object sender, RoutedEventArgs e) => ValidateCurrentDocument(true);
+        private void BtnBinaryDiff_Click(object sender, RoutedEventArgs e) => ShowBinaryDiff();
+        private void BtnOpenFolder_Click(object sender, RoutedEventArgs e) => _ = DisplayOpenFolderDialog();
+        private void BtnSaveAll_Click(object sender, RoutedEventArgs e) => _ = SaveAllChangedDocumentsAsync();
+        private void BtnRefreshNavigation_Click(object sender, RoutedEventArgs e) => RefreshNavigationTree();
+        private void MenuNavigationPane_Click(object sender, RoutedEventArgs e)
+        {
+            m_navigationPaneVisible = !m_navigationPaneVisible;
+            UpdateNavigationPaneLayout();
+            SaveNavigationSettings();
+        }
+        private void MenuNavigationPaneRight_Click(object sender, RoutedEventArgs e)
+        {
+            m_navigationPaneRight = !m_navigationPaneRight;
+            UpdateNavigationPaneLayout();
+            SaveNavigationSettings();
+        }
         private async void MenuAbout_Click(object sender, RoutedEventArgs e) => await new AboutWindow().ShowDialog(this);
 
         private async void Window_Closing(object sender, WindowClosingEventArgs e)
@@ -920,11 +1541,17 @@ namespace LR1BinaryEditor
             public string CurrentFormat { get; set; }
             public bool UnsavedChanges { get; set; }
             public bool LoadingEditorText { get; set; }
+            public bool NeedsValidation { get; set; }
+            public JamEntrySource JamSource { get; set; }
+            public BinaryEditorDocumentSession Session { get; set; }
             public TextEditor Editor { get; set; }
             public TabItem Tab { get; set; }
             public Border HeaderBorder { get; set; }
             public TextBlock HeaderText { get; set; }
+            public Border InspectionBanner { get; set; }
+            public TextBlock InspectionText { get; set; }
             public FoldingManager FoldingManager { get; set; }
+            public ListGroupSeparatorRenderer ListGroupSeparatorRenderer { get; set; }
             public BraceFoldingStrategy BraceFoldingStrategy { get; } = new BraceFoldingStrategy();
         }
 
@@ -933,6 +1560,115 @@ namespace LR1BinaryEditor
             Save,
             DontSave,
             Cancel
+        }
+
+        private sealed class NavigationEntry
+        {
+            public NavigationEntryKind Kind { get; private set; }
+            public string Path { get; private set; }
+            public string JamArchivePath { get; private set; }
+            public string JamEntryPath { get; private set; }
+
+            public static NavigationEntry ForDirectory(string path)
+                => new NavigationEntry { Kind = NavigationEntryKind.Directory, Path = path };
+
+            public static NavigationEntry ForFile(string path)
+                => new NavigationEntry { Kind = NavigationEntryKind.File, Path = path };
+
+            public static NavigationEntry ForJamArchive(string archivePath)
+                => new NavigationEntry { Kind = NavigationEntryKind.JamArchive, Path = archivePath, JamArchivePath = archivePath };
+
+            public static NavigationEntry ForJamDirectory(string archivePath, string entryPath)
+                => new NavigationEntry { Kind = NavigationEntryKind.JamDirectory, Path = archivePath, JamArchivePath = archivePath, JamEntryPath = entryPath };
+
+            public static NavigationEntry ForJamFile(string archivePath, string entryPath)
+                => new NavigationEntry { Kind = NavigationEntryKind.JamFile, Path = archivePath, JamArchivePath = archivePath, JamEntryPath = entryPath };
+
+            public static NavigationEntry ForMessage(string path)
+                => new NavigationEntry { Kind = NavigationEntryKind.Message, Path = path };
+
+            public string GetStatusText()
+            {
+                switch (Kind)
+                {
+                    case NavigationEntryKind.Directory:
+                    case NavigationEntryKind.File:
+                    case NavigationEntryKind.JamArchive:
+                        return Path ?? "";
+                    case NavigationEntryKind.JamDirectory:
+                    case NavigationEntryKind.JamFile:
+                        return string.Format("{0} | {1}", JamArchivePath, JamEntryPath);
+                    default:
+                        return Path ?? "";
+                }
+            }
+        }
+
+        private enum NavigationEntryKind
+        {
+            Directory,
+            File,
+            JamArchive,
+            JamDirectory,
+            JamFile,
+            Message
+        }
+
+        private sealed class JamEntrySource
+        {
+            public JamEntrySource(string archivePath, string entryPath, string tempRoot)
+            {
+                ArchivePath = Path.GetFullPath(archivePath);
+                EntryPath = entryPath.Replace('\\', '/');
+                TempRoot = Path.GetFullPath(tempRoot);
+            }
+
+            public string ArchivePath { get; }
+            public string EntryPath { get; }
+            public string TempRoot { get; }
+
+            public string GetExtractedPath()
+            {
+                string path = TempRoot;
+                foreach (string component in EntryPath.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries))
+                    path = Path.Combine(path, component);
+                return Path.GetFullPath(path);
+            }
+        }
+
+        private sealed class JamArchiveSession
+        {
+            public JamArchiveSession(string archivePath, string tempRoot)
+            {
+                ArchivePath = Path.GetFullPath(archivePath);
+                TempRoot = Path.GetFullPath(tempRoot);
+            }
+
+            public string ArchivePath { get; }
+            public string TempRoot { get; }
+
+            public string GetExtractedPath(string entryPath)
+            {
+                string normalized = entryPath.Replace('\\', '/');
+                string path = TempRoot;
+                foreach (string component in normalized.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries))
+                    path = Path.Combine(path, component);
+
+                string fullPath = Path.GetFullPath(path);
+                string rootPrefix = TempRoot.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal)
+                    ? TempRoot
+                    : TempRoot + Path.DirectorySeparatorChar;
+                if (!fullPath.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException("JAM extraction path escapes the temporary archive directory.");
+                return fullPath;
+            }
+        }
+
+        private sealed class NavigationSettings
+        {
+            public bool NavigationPaneVisible { get; set; } = true;
+            public bool NavigationPaneRight { get; set; }
+            public string NavigationRoot { get; set; }
         }
     }
 }

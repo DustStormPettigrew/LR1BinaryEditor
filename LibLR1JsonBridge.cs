@@ -1,4 +1,5 @@
-using LibLR1.IO;
+using LibLR1.Schema;
+using LibLR1.Inspection;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -25,39 +26,15 @@ namespace LR1BinaryEditor
 
 		public static bool CanExport(string format, out string error)
 		{
-			if (!TryGetAdapter(format, out FormatAdapter adapter, out error))
-			{
-				return false;
-			}
-
-			if (!adapter.CanRead)
-			{
-				error = "No LibLR1 reader is available for ." + format + " files.";
-				return false;
-			}
-
-			error = null;
-			return true;
+			return TryGetAdapter(format, out _, out error);
 		}
 
 		public static bool CanImport(string format, out string error)
 		{
-			if (!TryGetAdapter(format, out FormatAdapter adapter, out error))
-			{
-				return false;
-			}
-
-			if (!adapter.CanWrite)
-			{
-				error = "LibLR1 can read ." + format + " files, but write support has not been implemented yet.";
-				return false;
-			}
-
-			error = null;
-			return true;
+			return TryGetAdapter(format, out _, out error);
 		}
 
-		public static bool TryExportJson(string format, string fileName, Stream binaryStream, out string json, out string error)
+		public static bool TryExportJson(string format, string fileName, object model, byte[] sourceData, out string json, out string error)
 		{
 			json = null;
 			if (!TryGetAdapter(format, out FormatAdapter adapter, out error))
@@ -65,21 +42,21 @@ namespace LR1BinaryEditor
 				return false;
 			}
 
-			if (!adapter.CanRead)
+			if (model == null || !adapter.ModelType.IsInstanceOfType(model))
 			{
-				error = "No LibLR1 reader is available for ." + format + " files.";
+				error = "JSON export requires a validated LibLR1 " + adapter.ModelType.Name + " document.";
 				return false;
 			}
 
 			try
 			{
-				object model = adapter.Read(binaryStream);
 				Dictionary<string, object> document = new Dictionary<string, object>
 				{
 					["schema"] = DocumentSchema,
 					["format"] = adapter.Format,
 					["fileName"] = fileName,
 					["rootType"] = adapter.ModelType.FullName,
+					["sourceData"] = Convert.ToBase64String(sourceData ?? Array.Empty<byte>()),
 					["data"] = SerializeValue(model)
 				};
 				json = JsonSerializer.Serialize(document, s_jsonOptions);
@@ -115,12 +92,6 @@ namespace LR1BinaryEditor
 					return false;
 				}
 
-				if (!adapter.CanWrite)
-				{
-					error = "LibLR1 can read ." + adapter.Format + " files, but write support has not been implemented yet.";
-					return false;
-				}
-
 				string rootTypeName = root.TryGetProperty("rootType", out JsonElement rootTypeElement)
 					? rootTypeElement.GetString()
 					: adapter.ModelType.FullName;
@@ -143,7 +114,13 @@ namespace LR1BinaryEditor
 					return false;
 				}
 
-				object model = DeserializeValue(dataElement, rootType);
+				if (!root.TryGetProperty("sourceData", out JsonElement sourceElement))
+				{
+					error = "The JSON file is missing the validated `sourceData` baseline required for safe import.";
+					return false;
+				}
+				object model = ReadValidatedBaseline(adapter.Format, Convert.FromBase64String(sourceElement.GetString()));
+				PopulateObject(dataElement, model, rootType);
 				document = new ImportedJsonDocument
 				{
 					Format = adapter.Format,
@@ -152,33 +129,6 @@ namespace LR1BinaryEditor
 						: "Imported." + adapter.Format,
 					Model = model
 				};
-				return true;
-			}
-			catch (Exception ex)
-			{
-				error = ex.Message;
-				return false;
-			}
-		}
-
-		public static bool TryWriteBinary(string format, object model, out MemoryStream binaryStream, out string error)
-		{
-			binaryStream = null;
-			if (!TryGetAdapter(format, out FormatAdapter adapter, out error))
-			{
-				return false;
-			}
-
-			if (!adapter.CanWrite)
-			{
-				error = "LibLR1 can read ." + adapter.Format + " files, but write support has not been implemented yet.";
-				return false;
-			}
-
-			try
-			{
-				binaryStream = adapter.Write(model);
-				error = null;
 				return true;
 			}
 			catch (Exception ex)
@@ -203,14 +153,14 @@ namespace LR1BinaryEditor
 				return true;
 			}
 
-			Type modelType = s_libAssembly.GetType("LibLR1." + format.Trim().ToUpperInvariant(), false, true);
-			if (modelType == null)
+			string normalized = format.Trim().TrimStart('.').ToUpperInvariant();
+			if (!SchemaStructureProvider.Formats.Contains(normalized, StringComparer.OrdinalIgnoreCase))
 			{
-				error = "No LibLR1 root type was found for ." + format + " files.";
+				error = "No registered LibLR1 format was found for ." + format + " files.";
 				return false;
 			}
 
-			adapter = new FormatAdapter(format.Trim().ToUpperInvariant(), modelType);
+			adapter = new FormatAdapter(normalized, SchemaStructureProvider.GetRootType(normalized));
 			s_adapters[adapter.Format] = adapter;
 			return true;
 		}
@@ -350,6 +300,32 @@ namespace LR1BinaryEditor
 			}
 
 			return instance;
+		}
+
+		private static object ReadValidatedBaseline(string p_format, byte[] p_sourceData)
+		{
+			string directory = Path.Combine(Path.GetTempPath(), "LR1BinaryEditor", "json");
+			Directory.CreateDirectory(directory);
+			string path = Path.Combine(directory, Guid.NewGuid().ToString("N") + "." + p_format);
+			try
+			{
+				File.WriteAllBytes(path, p_sourceData);
+				FormatInspectionResult<object> inspection = FormatInspection.ReadRegistered(p_format, path);
+				if (!inspection.CanWrite) throw new InvalidDataException(inspection.Issue?.Message ?? "The JSON source baseline is not writable.");
+				return inspection.Document;
+			}
+			finally { try { File.Delete(path); } catch { } }
+		}
+
+		private static void PopulateObject(JsonElement p_element, object p_instance, Type p_type)
+		{
+			Dictionary<string, SerializableMember> members = GetSerializableMembers(p_type)
+				.ToDictionary(member => member.Name, member => member, StringComparer.OrdinalIgnoreCase);
+			foreach (JsonProperty property in p_element.EnumerateObject())
+			{
+				if (property.NameEquals("$type") || !members.TryGetValue(property.Name, out SerializableMember member)) continue;
+				member.SetValue(p_instance, DeserializeValue(property.Value, member.MemberType));
+			}
 		}
 
 		private static Type ResolveActualType(JsonElement element, Type fallbackType)
@@ -633,53 +609,14 @@ namespace LR1BinaryEditor
 
 		private sealed class FormatAdapter
 		{
-			private readonly ConstructorInfo m_readerConstructor;  // (LRBinaryReader) — token path
-			private readonly MethodInfo m_saveMethod;              // Save(LRBinaryWriter) — token path
-
 			public FormatAdapter(string format, Type modelType)
 			{
 				Format = format;
 				ModelType = modelType;
-				m_readerConstructor = modelType.GetConstructor(new[] { typeof(LRBinaryReader) });
-				m_saveMethod = modelType.GetMethod("Save", new[] { typeof(LRBinaryWriter) });
 			}
 
 			public string Format { get; }
 			public Type ModelType { get; }
-			public bool CanRead => m_readerConstructor != null;
-			public bool CanWrite => m_saveMethod != null;
-
-			public object Read(Stream stream)
-			{
-				stream.Position = 0;
-				if (m_readerConstructor != null)
-				{
-					using (LRBinaryReader reader = new LRBinaryReader(stream, false))
-						return m_readerConstructor.Invoke(new object[] { reader });
-				}
-				throw new InvalidOperationException("No token-stream LibLR1 reader is available for ." + Format + " files.");
-			}
-
-			public MemoryStream Write(object model)
-			{
-				if (!ModelType.IsInstanceOfType(model))
-				{
-					throw new InvalidOperationException("JSON root type `" + model.GetType().FullName + "` does not match the selected ." + Format + " format.");
-				}
-
-				MemoryStream stream = new MemoryStream();
-				if (m_saveMethod != null)
-				{
-					using (LRBinaryWriter writer = new LRBinaryWriter(stream, false))
-						m_saveMethod.Invoke(model, new object[] { writer });
-				}
-				else
-				{
-					throw new InvalidOperationException("No token-stream LibLR1 writer is available for ." + Format + " files.");
-				}
-				stream.Position = 0;
-				return stream;
-			}
 		}
 
 		private sealed class SerializableMember

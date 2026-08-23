@@ -21,14 +21,20 @@
       <MenuItem Header="_File">
         <MenuItem Header="_New" Click="BtnNew_Click" InputGesture="Ctrl+N"/>
         <MenuItem Header="_Open..." Click="BtnOpen_Click" InputGesture="Ctrl+O"/>
-        <MenuItem Header="_Save" Click="BtnSave_Click" InputGesture="Ctrl+S"/>
-        <MenuItem Header="Save _As..." Click="BtnSaveAs_Click" InputGesture="Ctrl+Shift+S"/>
+        <MenuItem x:Name="g_MenuSave" Header="_Save" Click="BtnSave_Click" InputGesture="Ctrl+S"/>
+        <MenuItem x:Name="g_MenuSaveAs" Header="Save _As..." Click="BtnSaveAs_Click" InputGesture="Ctrl+Shift+S"/>
         <Separator/>
-        <MenuItem Header="Export as _JSON..." Click="BtnExportJson_Click" InputGesture="Ctrl+E"/>
+        <MenuItem x:Name="g_MenuExportJson" Header="Export as _JSON..." Click="BtnExportJson_Click" InputGesture="Ctrl+E"/>
         <MenuItem Header="_Import as JSON..." Click="BtnImportJson_Click" InputGesture="Ctrl+I"/>
       </MenuItem>
       <MenuItem Header="_Edit">
+        <MenuItem x:Name="g_MenuValidate" Header="_Validate / Reparse" Click="BtnValidate_Click" InputGesture="Ctrl+R"/>
+        <MenuItem Header="Binary _Diff" Click="BtnBinaryDiff_Click"/>
+        <Separator/>
         <MenuItem Header="_Syntax Highlighting Colors..." Click="MenuSyntaxColors_Click"/>
+        <Separator/>
+        <MenuItem x:Name="g_MenuNavigationPane" Header="[x] Show _Navigation Pane" Click="MenuNavigationPane_Click"/>
+        <MenuItem x:Name="g_MenuNavigationPaneRight" Header="Navigation Pane on _Right" Click="MenuNavigationPaneRight_Click"/>
       </MenuItem>
       <MenuItem Header="_About" Click="MenuAbout_Click"/>
     </Menu>
@@ -49,11 +55,13 @@
         <Button Click="BtnOpen_Click" ToolTip.Tip="Open (Ctrl+O)" Width="24" Padding="3">
           <Image Source="avares://LR1BinaryEditor/Assets/icon_open.png" Width="16" Height="16"/>
         </Button>
-        <Button Click="BtnSave_Click" ToolTip.Tip="Save (Ctrl+S)" Width="24" Padding="3">
+        <Button x:Name="g_ButtonSave" Click="BtnSave_Click" ToolTip.Tip="Save (Ctrl+S)" Width="24" Padding="3">
           <Image Source="avares://LR1BinaryEditor/Assets/icon_save.png" Width="16" Height="16"/>
         </Button>
         <Separator Width="1" Height="20" Background="{DynamicResource SystemControlForegroundBaseMediumBrush}" Margin="3,0"/>
-        <Button Content="Export JSON" Click="BtnExportJson_Click" ToolTip.Tip="Export as JSON (Ctrl+E)"/>
+        <Button x:Name="g_ButtonValidate" Content="Validate" Click="BtnValidate_Click" ToolTip.Tip="Compile and reparse through LibLR1 (Ctrl+R)"/>
+        <Button Content="Diff" Click="BtnBinaryDiff_Click" ToolTip.Tip="Compare source and current candidate bytes"/>
+        <Button x:Name="g_ButtonExportJson" Content="Export JSON" Click="BtnExportJson_Click" ToolTip.Tip="Export as JSON (Ctrl+E)"/>
         <Button Content="Import JSON" Click="BtnImportJson_Click" ToolTip.Tip="Import as JSON (Ctrl+I)"/>
       </StackPanel>
     </Border>
@@ -63,17 +71,71 @@
             Height="24">
       <TextBlock x:Name="g_LblBuild" Margin="6,0" VerticalAlignment="Center" FontSize="11"/>
     </Border>
-    <TabControl x:Name="g_Tabs"
-                FontSize="12"
-                Padding="0">
-      <TabControl.Styles>
-        <Style Selector="TabItem">
-          <Setter Property="FontSize" Value="12"/>
-          <Setter Property="Padding" Value="0"/>
-          <Setter Property="Margin" Value="1,2,1,0"/>
-          <Setter Property="MinHeight" Value="26"/>
-        </Style>
-      </TabControl.Styles>
-    </TabControl>
+    <Grid x:Name="g_WorkArea">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="260"/>
+        <ColumnDefinition Width="5"/>
+        <ColumnDefinition Width="*"/>
+      </Grid.ColumnDefinitions>
+
+      <Border x:Name="g_NavigationPane"
+              Grid.Column="0"
+              BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+              BorderThickness="0,0,1,0"
+              Background="#F7F7F7">
+        <DockPanel>
+          <Border DockPanel.Dock="Top"
+                  BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                  BorderThickness="0,0,0,1"
+                  Padding="3">
+            <StackPanel Orientation="Horizontal" Spacing="2">
+              <StackPanel.Styles>
+                <Style Selector="Button">
+                  <Setter Property="FontSize" Value="12"/>
+                  <Setter Property="MinHeight" Value="24"/>
+                  <Setter Property="Padding" Value="3"/>
+                  <Setter Property="Margin" Value="0"/>
+                </Style>
+              </StackPanel.Styles>
+              <Button Click="BtnOpenFolder_Click" ToolTip.Tip="Open folder" Width="26">
+                <Image Source="avares://LR1BinaryEditor/Assets/AppIcons/icons8-browse-folder-48.png" Width="16" Height="16"/>
+              </Button>
+              <Button Click="BtnSaveAll_Click" ToolTip.Tip="Save all changed files" Width="26">
+                <Image Source="avares://LR1BinaryEditor/Assets/AppIcons/icons8-save-48.png" Width="16" Height="16"/>
+              </Button>
+              <Button Click="BtnRefreshNavigation_Click" ToolTip.Tip="Refresh directory" Width="26">
+                <Image Source="avares://LR1BinaryEditor/Assets/AppIcons/icons8-refresh-48.png" Width="16" Height="16"/>
+              </Button>
+            </StackPanel>
+          </Border>
+          <Border DockPanel.Dock="Bottom"
+                  BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                  BorderThickness="0,1,0,0"
+                  Height="24">
+            <TextBlock x:Name="g_NavStatus" Margin="6,0" VerticalAlignment="Center" FontSize="11" TextTrimming="CharacterEllipsis"/>
+          </Border>
+          <TreeView x:Name="g_NavTree" FontSize="12" Margin="2"/>
+        </DockPanel>
+      </Border>
+
+      <GridSplitter x:Name="g_NavigationSplitter"
+                    Grid.Column="1"
+                    Width="5"
+                    Background="#D0D0D0"/>
+
+      <TabControl x:Name="g_Tabs"
+                  Grid.Column="2"
+                  FontSize="12"
+                  Padding="0">
+        <TabControl.Styles>
+          <Style Selector="TabItem">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="1,2,1,0"/>
+            <Setter Property="MinHeight" Value="26"/>
+          </Style>
+        </TabControl.Styles>
+      </TabControl>
+    </Grid>
   </DockPanel>
 </Window>

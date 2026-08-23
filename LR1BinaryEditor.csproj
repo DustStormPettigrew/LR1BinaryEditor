@@ -28,6 +28,8 @@
   <ItemGroup>
     <Compile Remove="Properties\Resources.Designer.cs" />
     <Compile Remove="Properties\Settings.Designer.cs" />
+    <Compile Remove="LR1BinaryEditor.Tests\**\*.cs" />
+    <Compile Remove="LR1BinaryEditor.CorpusValidator\**\*.cs" />
     <EmbeddedResource Remove="Properties\Resources.resx" />
   </ItemGroup>
 
@@ -36,6 +38,8 @@
     <AvaloniaResource Include="Assets\icon_new.png" />
     <AvaloniaResource Include="Assets\icon_open.png" />
     <AvaloniaResource Include="Assets\icon_save.png" />
+    <AvaloniaResource Include="..\AppIcons\*.png" Link="Assets\AppIcons\%(Filename)%(Extension)" />
+    <AvaloniaResource Include="Assets\FileTypes\*.png" />
   </ItemGroup>
 
   <ItemGroup>
@@ -43,6 +47,9 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="properties.cfg">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\LibLR1\docs\reconciliation\format-evidence.json" Link="format-evidence.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
